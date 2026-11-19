@@ -611,6 +611,31 @@ is Escape in the game's pause menu (`nativeGameState`). The game's pause menu is
 (`platform_sdl3.cpp`: SDL delivers it as a down and an up within one frame, too short for the keyboard snapshot), which
 leaves it.
 
+- **Dialogs on short screens** (0.3.1): every AlertDialog goes through `Dialogs.fit()` after `show()`. A long message
+  (the phone build's notes) made the dialog taller than a landscape / folded screen and its button row ("Build") fell
+  below the edge. `fit()` keeps the window inside the system bars and cutout and, if it is still taller, gives it an
+  exact height so the dialog's own layout shrinks the scrolling message and keeps the buttons; it re-checks on folds and
+  turns. A new dialog must go through it too.
+
+## Crash reports
+
+Players report crashes without a PC or adb (0.3.1, after a "crashes on boot" report from a phone we had never run on).
+
+- **The game's log on the phone**: `src/android/android_log.cpp` pipes stdout / stderr into logcat as before and copies
+  every line to `files/logs/game.log` (flushed per line; at most 16 MB, then logcat only). The run before is kept as
+  `game.prev.log`. The crash handler (`src/debug/crash.cpp`, `[android]` lines) calls `vcs_android_log_drain()` (weak)
+  before the process ends, so its report (signal, address, stack) reaches the file.
+- **Java exceptions** in the game's process (`:game`) are appended to the same file (`CrashReport.installInGameProcess`,
+  from `VCSActivity.onCreate`), then go on to Android's own handler.
+- **About > Game log and crash report…** (`CrashReport.java`): the value says how the last run ended (crashed, code pack
+  refused, ended normally, ended without a word). *Save to a file…* (the system's file picker, no permission) writes
+  the whole report; *Share…* sends it as text (cut to 400 KB, the share intent's limit). The report: phone model, chip
+  (`Build.SOC_*`), Android version, app version and build tag, the game library's size, both logs and the app's own
+  logcat (`logcat -d`: Android gives an app only its own lines, which include the GPU driver's messages for our process).
+  No game data, nothing from the disc.
+- What still escapes it: a crash before `SDL_main` starts (the library not loading: Android's own crash dialog; the
+  logcat part of the report still has it), and the system's tombstone (not readable by apps).
+
 ## Touch controls
 
 An on-screen PS2 pad, `TouchControls.java` (a plain `View` that `VCSActivity` lays over SDL's surface, once `libmain.so`

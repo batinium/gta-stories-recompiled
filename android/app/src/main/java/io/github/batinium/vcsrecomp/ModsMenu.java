@@ -373,14 +373,14 @@ final class ModsMenu {
             message("What is modified", "Nothing yet: no mod that is on has a slot.");
             return;
         }
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("What is modified · " + gameTitle())
                 .setItems(labels.toArray(new String[0]), (d, which) -> {
                     if (actions.get(which) != null)
                         actions.get(which).run();
                 })
                 .setNegativeButton("Close", null)
-                .show();
+                .show());
     }
 
     private void chooseWinner(List<Object[]> by) {
@@ -393,14 +393,14 @@ final class ModsMenu {
             if (!e.off)
                 current = i;
         }
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Which mod gets " + ModFormats.targetName((ModFormats.Entry) by.get(0)[1]) + "?")
                 .setSingleChoiceItems(names, current, (d, which) -> {
                     d.dismiss();
                     prefer((Mod) by.get(which)[0], (ModFormats.Entry) by.get(which)[1]);
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+                .show());
     }
 
     // ---- storage -----------------------------------------------------------------------------------------------------
@@ -737,11 +737,11 @@ final class ModsMenu {
     static final String PLACE_CHOICE = "Keep where it is (the app only reads it; don't move or delete it)";
 
     private void pick() {
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Add a mod")
                 .setItems(new String[] {IMPORT_CHOICE, PLACE_CHOICE}, (d, which) -> openPicker(which == 1 ? PICK_MOD_PLACE : PICK_MOD))
                 .setNegativeButton("Cancel", null)
-                .show();
+                .show());
     }
 
     /** The system's file picker: several files at once (a .dff and its .txd: one mod); kept where it is: a permission
@@ -1175,12 +1175,12 @@ final class ModsMenu {
         actions.add(() -> details(m));
         labels.add("Remove");
         actions.add(() -> confirmRemove(m));
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(m.name + (m.original.equals("missing") ? " · original missing"
                         : m.original.equals("changed") ? " · original changed" : m.inPlace ? " · kept where it is" : " · imported"))
                 .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
                 .setNegativeButton("Close", null)
-                .show();
+                .show());
     }
 
     /** One line / model: change its slot, or (a conflict) make it the one that applies */
@@ -1208,11 +1208,11 @@ final class ModsMenu {
             actions.add(() -> prefer(m, e));
         }
         String who = e.pcName.equals("VCMCAR") ? "this car" : e.pcName;
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(who + " → " + ModFormats.targetName(e))
                 .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
                 .setNegativeButton("Close", null)
-                .show();
+                .show());
     }
 
     private void chooseTarget(Mod m, ModFormats.Entry e) {
@@ -1232,7 +1232,7 @@ final class ModsMenu {
                 current = i;
         }
         String what = e.pcName.equals("VCMCAR") ? "this car" : e.pcName;
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle((vehicle ? "Which " + gameTitle() + " vehicle gets " : "Which " + gameTitle() + " weapon gets ") + what
                         + (model ? "'s model?" : "'s values?"))
                 .setSingleChoiceItems(names, current, (d, which) -> {
@@ -1243,7 +1243,7 @@ final class ModsMenu {
                     changed(m);
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+                .show());
     }
 
     private static long treeSize(File f) {
@@ -1365,6 +1365,7 @@ final class ModsMenu {
                 .create();
         d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus());
         d.show();
+        Dialogs.fit(d);
     }
 
     private static void deleteTree(File f) {
@@ -1376,10 +1377,10 @@ final class ModsMenu {
     }
 
     private void message(String title, String text) {
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(title)
                 .setMessage(text)
                 .setPositiveButton("OK", null)
-                .show();
+                .show());
     }
 }

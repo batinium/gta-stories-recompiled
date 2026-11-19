@@ -39,6 +39,7 @@ public class VCSActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle state) {
         Log.i("vcs", "[android] VCS Recomp " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VCS_BUILD_TAG + ")");
+        CrashReport.installInGameProcess(this); // [report] a Java exception here lands in files/logs/game.log
         // [lcs] the game the launcher started (its selector), fixed for this process; its colours for the overlay
         String game = getIntent().getStringExtra(EXTRA_GAME);
         if (game != null && DiscCheck.game(game) != null)

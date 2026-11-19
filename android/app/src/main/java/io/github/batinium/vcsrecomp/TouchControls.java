@@ -1495,6 +1495,7 @@ final class TouchControls extends View {
                 panel.prefsChanged(); // its Controls tab shows the same settings
         });
         dialog.show();
+        Dialogs.fit(dialog);
     }
 
     // ---- the layout editor (docs/ANDROID.md "Layout editor"): Button mode moves one control, Group mode its group (the

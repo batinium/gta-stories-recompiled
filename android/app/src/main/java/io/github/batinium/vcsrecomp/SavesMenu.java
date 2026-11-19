@@ -312,6 +312,7 @@ final class SavesMenu {
                 .create();
         d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus()); // a stray A press keeps it
         d.show();
+        Dialogs.fit(d);
     }
 
     private void install(PS2Save save, String name) {
@@ -415,7 +416,7 @@ final class SavesMenu {
         }
         File pic = shot(slot);
         String when = pic.isFile() ? " (" + android.text.format.DateFormat.format("d MMM, HH:mm", pic.lastModified()) + ")" : "";
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Start from slot " + slot + "?")
                 .setMessage((name.isEmpty() ? "Saved game" : name) + when + "\n\nThe game starts and loads this save "
                         + "instead of the newest one. Nothing on the memory card changes.")
@@ -426,14 +427,14 @@ final class SavesMenu {
                     else
                         launcher.playSlot(slot);
                 })
-                .show();
+                .show());
     }
 
     private void message(String title, String text) {
-        new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(title)
                 .setMessage(text)
                 .setPositiveButton("OK", null)
-                .show();
+                .show());
     }
 }

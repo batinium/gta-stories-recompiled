@@ -31,6 +31,12 @@
 #define VCS_CRASH_POSIX 1
 #endif
 
+#if defined(__ANDROID__)
+// [android] src/android/android_log.cpp: stderr goes through a pipe to logcat and files/logs/game.log; let it drain
+// before the process ends, or the report is lost (weak: absent in builds without it)
+extern "C" __attribute__((weak)) void vcs_android_log_drain();
+#endif
+
 namespace vcs
 {
     namespace
@@ -54,6 +60,10 @@ namespace vcs
                                   L"The details are in the log (build\\stories\\oneproc.log).",
                             L"GTA Stories", MB_OK | MB_ICONERROR);
             }
+#endif
+#if defined(__ANDROID__)
+            if (vcs_android_log_drain) // [android]
+                vcs_android_log_drain();
 #endif
             std::_Exit(code);
         }
@@ -232,6 +242,10 @@ namespace vcs
             std::fprintf(stderr, " (thread %ld)\n", static_cast<long>(syscall(SYS_gettid)));
 #endif
             printStack(pc);
+#if defined(__ANDROID__)
+            if (vcs_android_log_drain) // [android]
+                vcs_android_log_drain();
+#endif
             // the default action: the exit status (and a core dump where enabled) say what happened
             signal(sig, SIG_DFL);
             raise(sig);

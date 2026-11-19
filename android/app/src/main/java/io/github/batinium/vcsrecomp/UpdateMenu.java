@@ -335,7 +335,7 @@ final class UpdateMenu {
                     setNote("✗ No browser to open " + r.page);
                 }
             });
-        b.show();
+        Dialogs.fit(b.show());
     }
 
     private void startUpdate() {
@@ -344,7 +344,7 @@ final class UpdateMenu {
             return;
         // Android lets an app install only once the player allowed it ("Install unknown apps"): they do that themselves
         if (!activity.getPackageManager().canRequestPackageInstalls()) {
-            dialog().setTitle("Allow this app to install its update")
+            Dialogs.fit(dialog().setTitle("Allow this app to install its update")
                     .setMessage("Android asks once: in the next screen turn on \"Allow from this source\" for this app, "
                             + "then come back and choose Update again. Android still asks before installing anything.")
                     .setNegativeButton("Not now", null)
@@ -356,7 +356,7 @@ final class UpdateMenu {
                             setNote("✗ The setting could not be opened: Settings > Apps > Special access > Install unknown apps");
                         }
                     })
-                    .show();
+                    .show());
             return;
         }
         UpdateVersion.Asset apk = r.apk();
@@ -378,6 +378,7 @@ final class UpdateMenu {
                 .create();
         d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus()); // a stray A press cancels
         d.show();
+        Dialogs.fit(d);
     }
 
     // ---- download, verify, install ----------------------------------------------------------------------------------
@@ -539,7 +540,7 @@ final class UpdateMenu {
     private void explainSigning(String why) {
         if (activity.isFinishing())
             return;
-        dialog().setTitle("This app can't be updated in place")
+        Dialogs.fit(dialog().setTitle("This app can't be updated in place")
                 .setMessage(why + "\n\nAndroid installs an update only over an app signed with the same key. Releases "
                         + "are signed with the project's release key; this app " + (BuildConfig.DEBUG
                         ? "is a build of your own, signed with your PC's debug key" : "was signed with another key")
@@ -547,7 +548,7 @@ final class UpdateMenu {
                         + "deletes its data), install the release's APK from its page, then import your saves and the "
                         + "game library again.")
                 .setPositiveButton("OK", null)
-                .show();
+                .show());
     }
 
     /** A PackageInstaller session with the APK; the answer comes to the receiver. Returns why it couldn't start, or null */

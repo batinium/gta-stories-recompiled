@@ -42,6 +42,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
     private static final int PICK_LIBRARY = 2;
     private static final int PICK_LSFG = 3;
     private static final int PICK_LSFG_FOLDER = 4;
+    private static final int SAVE_REPORT = 40; // [report]
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private FrameLayout root;
@@ -526,6 +527,12 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         about.add(new MenuView.Item("Licence")
                 .value(() -> "GPL-3.0 · the frame generation port GPL-3.0-or-later")
                 .help("Lossless.dll is not part of this app: you bring your own copy."));
+        // [report] the game's log and a crash report a player can send without a PC (CrashReport.java)
+        about.add(new MenuView.Item("Game log and crash report…")
+                .value(() -> reportNote != null ? reportNote : CrashReport.lastRunSummary(this))
+                .help("Saves or shares a report: this phone's model and Android version, the app's version and the "
+                        + "game's log. Send it with any crash report. It holds no game data and nothing from your disc.")
+                .action(this::reportMenu));
         about.add(new MenuView.Item("Where your data is")
                 .value(() -> "Settings files/vcs.ini · saves files/" + GameFiles.dataDir(this).getName()) // [lcs] per game
                 .help("Inside the app's private folder. Uninstalling the app deletes them."));
@@ -653,11 +660,11 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         String game = GameFiles.game(this);
         String why = phoneBuildRefusal(game);
         if (why != null) { // a refused start says why (a greyed row only flashed, with no word)
-            new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                     .setTitle("Can't build the code pack yet")
                     .setMessage(why)
                     .setPositiveButton("OK", null)
-                    .show();
+                    .show());
             return;
         }
         if (android.os.Build.VERSION.SDK_INT >= 33
@@ -687,7 +694,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 + "First it downloads the compiler once (" + (PhoneBuild.downloadSize(this) >> 20) + " MB): Termux's "
                 + "official clang/LLVM packages from " + PhoneBuild.TERMUX + " (checked against SHA-256 sums in this "
                 + "app). Licences:" + lic + "\nNothing from your disc leaves the phone; nothing of the game is downloaded.";
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Build the code pack on this phone")
                 .setMessage(text)
                 .setPositiveButton("Build", (dlg, w) -> {
@@ -695,7 +702,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                     refresh();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+                .show());
     }
 
     private String lsfgState() {
@@ -773,6 +780,10 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         if (result != RESULT_OK || data == null || data.getData() == null)
             return;
         Uri uri = data.getData();
+        if (request == SAVE_REPORT) { // [report]
+            saveReport(uri);
+            return;
+        }
         if (request == PICK_DISC)
             checkDisc(uri);
         else if (request == PICK_LIBRARY)
@@ -781,6 +792,72 @@ public class LauncherActivity extends Activity implements MenuView.Host {
             importLsfg(uri);
         else if (request == PICK_LSFG_FOLDER)
             grantLsfgFolder(uri);
+    }
+
+    // ---- [report] the game's log and crash report (CrashReport.java) ---------------------------------------------------
+
+    private String reportNote;
+
+    private void reportMenu() {
+        Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Game log and crash report")
+                .setMessage(CrashReport.lastRunSummary(this) + "\n\nThe report: this phone (model, chip, Android "
+                        + "version), the app's version and the game's log from the last two runs. No game data, nothing "
+                        + "from your disc. Save it to a file, or share it (long logs are cut there).")
+                .setNegativeButton("Share…", (d, w) -> shareReport())
+                .setPositiveButton("Save to a file…", (d, w) -> {
+                    Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("text/plain");
+                    i.putExtra(Intent.EXTRA_TITLE, "gta-stories-report-" + new java.text.SimpleDateFormat(
+                            "yyyyMMdd-HHmm", Locale.ROOT).format(new java.util.Date()) + ".txt");
+                    startActivityForResult(i, SAVE_REPORT);
+                })
+                .setNeutralButton("Close", null)
+                .show());
+    }
+
+    private void reportNote(String note) {
+        runOnUiThread(() -> {
+            reportNote = note;
+            refresh();
+        });
+    }
+
+    private void shareReport() {
+        reportNote("Making the report…");
+        new Thread(() -> {
+            String report = CrashReport.shortened(CrashReport.build(this), 400 * 1024);
+            runOnUiThread(() -> {
+                reportNote = null;
+                refresh();
+                Intent send = new Intent(Intent.ACTION_SEND);
+                send.setType("text/plain");
+                send.putExtra(Intent.EXTRA_SUBJECT, getString(R.string.app_name) + " crash report");
+                send.putExtra(Intent.EXTRA_TEXT, report);
+                try {
+                    startActivity(Intent.createChooser(send, "Share the report"));
+                } catch (RuntimeException e) {
+                    reportNote("✗ Couldn't share (" + e.getClass().getSimpleName() + "): save it to a file instead");
+                }
+            });
+        }, "report").start();
+    }
+
+    private void saveReport(Uri uri) {
+        reportNote("Saving the report…");
+        new Thread(() -> {
+            String report = CrashReport.build(this);
+            try (java.io.OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                if (out == null)
+                    throw new java.io.IOException("no stream");
+                out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                reportNote("✓ Saved " + displayName(uri) + " (" + report.length() / 1024 + " KB)");
+            } catch (java.io.IOException | RuntimeException e) {
+                Log.w("vcs", "[report] save: " + e);
+                reportNote("✗ Couldn't save the report: " + e.getMessage());
+            }
+        }, "report").start();
     }
 
     private String displayName(Uri uri) {
@@ -995,6 +1072,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 .create();
         d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus()); // a stray A press keeps it
         d.show();
+        Dialogs.fit(d);
     }
 
     private void statsItems() {
@@ -1005,12 +1083,12 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         StatsOverlay.addSettings(this, box, null);
         ScrollView s = new ScrollView(this);
         s.addView(box);
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Stats overlay")
                 .setView(s)
                 .setPositiveButton("Close", null)
                 .setOnDismissListener(d -> refresh())
-                .show();
+                .show());
     }
 
     @Override
