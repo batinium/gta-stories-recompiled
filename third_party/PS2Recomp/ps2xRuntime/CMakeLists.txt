@@ -339,6 +339,20 @@ elseif(APPLE AND NOT VCS_FFMPEG STREQUAL "system")
         set(FFMPEG_SOURCE_URL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_SOURCE_VERSION}.tar.xz")
     endif()
     set(FFMPEG_PREFIX_DIR "${CMAKE_BINARY_DIR}/ThirdParty/ffmpeg-prefix")
+    # [gta-recomp] FFmpeg's configure stops on a path with a space ("cd: .../Library/Application: No such file"), and
+    # the launcher builds in ~/Library/Application Support/...: then FFmpeg is built in ~/Library/Caches instead, in a
+    # folder of this build tree's own (keyed by its path)
+    if(CMAKE_BINARY_DIR MATCHES " ")
+        string(SHA1 _ffmpeg_tree "${CMAKE_BINARY_DIR}")
+        string(SUBSTRING "${_ffmpeg_tree}" 0 12 _ffmpeg_tree)
+        set(FFMPEG_PREFIX_DIR "$ENV{HOME}/Library/Caches/GTAStoriesRecomp/ffmpeg-${_ffmpeg_tree}")
+        if(FFMPEG_PREFIX_DIR MATCHES " ")
+            message(FATAL_ERROR "FFmpeg can't be built in a folder with a space in its path (${CMAKE_BINARY_DIR}), "
+                                "and the fallback has one too (${FFMPEG_PREFIX_DIR}): build in a folder without spaces, "
+                                "or use the system's FFmpeg (VCS_FFMPEG=system)")
+        endif()
+        message(STATUS "FFmpeg: the build folder's path has a space; building FFmpeg in ${FFMPEG_PREFIX_DIR}")
+    endif()
     set(FFMPEG_INSTALL_DIR "${FFMPEG_PREFIX_DIR}/install")
     set(FFMPEG_INCLUDE_DIR "${FFMPEG_INSTALL_DIR}/include")
     set(FFMPEG_LIB_DIR "${FFMPEG_INSTALL_DIR}/lib")
