@@ -1,0 +1,68 @@
+# --- Game files: NEVER commit. Users bring their own disc/ISO. ---
+*.iso
+*.ISO
+*.bin
+*.cue
+*.chd
+SLUS_*
+SLES_*
+SCUS_*
+/gamefiles/
+/disc/
+# [stories] the other game's assets, extracted from the player's own disc (tools/stories_pack.py): never commit
+stories_vcs_*/
+stories_lcs_*/
+*.dtz
+*.DTZ
+*.anm
+
+# --- Generated from the user's own ELF: contains translated game code ---
+generated/
+# [lcs] another game's generated code (tools/build.py --game lcs --recompile: generated-lcs/)
+generated-*/
+*.gzf
+build/analysis/
+ghidra/project/
+ghidra/export/
+
+# --- Build outputs ---
+build/
+out/
+.vs/
+.vscode/
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.obj
+__pycache__/
+
+# the build folder chosen elsewhere (tools/build_dir.py): this machine only
+.vcs-build-dir
+/GTAStoriesLauncher
+/GTAStoriesLauncher.app
+/GTAStoriesLauncher.old
+/GTAStoriesLauncher.exe.old
+
+# [android] Android build: the SDK path, Gradle caches
+/android/local.properties
+/android/.gradle/
+/android/app/.cxx/
+
+# --- [android] Signing keys: never in the repository (android/app/build.gradle reads VCS_SIGN_* from the environment) ---
+*.jks
+*.keystore
+
+# --- [android] Packages, the player's game library and files players bring: never in the repository
+# (tools/prepublish_check.py checks the tracked files and the history before a push) ---
+*.apk
+*.aab
+*.idsig
+*.so
+[Ll]ossless.dll
+
+# private agent setup: stays on disk, never tracked
+CLAUDE.md
+AGENTS.md
+internal/
+.claude/

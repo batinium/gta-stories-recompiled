@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.batinium.phonebuildhost"
+    android:versionCode="2" android:versionName="0.2">
+    <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35" />
+    <queries><package android:name="io.github.batinium.phonebuildprobe" /><package android:name="io.github.batinium.phonebuildhost" /></queries>
+    <application android:label="phonebuildhost" android:debuggable="true" android:extractNativeLibs="true">
+        <activity android:name="io.github.batinium.phonebuildprobe.Run" android:exported="true" />
+    </application>
+</manifest>

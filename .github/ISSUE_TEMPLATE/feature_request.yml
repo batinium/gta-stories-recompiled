@@ -1,0 +1,34 @@
+name: Feature request
+description: An idea for the game, the launcher, GTA Stories, the mod loader or the Android app.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not attach or link game files, ISOs or save files with copyrighted content.**
+        Not possible here: a download that includes the game, and PSP versions (this is the PS2 game).
+        Open-ended ideas can start as a [discussion](https://github.com/batinium/gta-stories-recompiled/discussions).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Liberty City Stories
+        - Vice City Stories
+        - GTA Stories (both cities)
+        - Mod loader
+        - Launcher
+        - Android
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like, and what problem does it solve
+    validations:
+      required: true
+  - type: textarea
+    id: alt
+    attributes:
+      label: Alternatives you tried or considered

@@ -1,0 +1,27 @@
+# [phonebuild] The compiler the app downloads for "Build code pack on this phone": official Termux packages
+# (https://packages-cf.termux.dev/apt/termux-main, stable), pinned by SHA-256. PhoneBuild.java reads this file
+# (assets/phonebuild/termux.txt). Termux keeps only current versions in its pool: when it updates clang, refresh this
+# file from the index (python3 tools/phonebuild/termux_pins.py <Packages_aarch64> <Packages_x86_64>) and ship a new APK.
+# arch package version size sha256 path licence
+aarch64 clang 21.1.8-3 30740228 9fb565013b96ce10abd8f8f217aaebb48f72873f53acbf8886329bcea841a21c pool/main/c/clang/clang_21.1.8-3_aarch64.deb Apache-2.0_WITH_LLVM-exception
+aarch64 lld 21.1.8-3 2812212 6299c8fdff59dcff972f6b444805bcdb211c2bd797a64d2ddb3875e699f30630 pool/main/l/lld/lld_21.1.8-3_aarch64.deb Apache-2.0_WITH_LLVM-exception
+aarch64 libllvm 21.1.8-3 30733892 5056a73f2645fc9c0759e6f94a1bd6edcf36305acaef58dc685211ced9cc2a02 pool/main/libl/libllvm/libllvm_21.1.8-3_aarch64.deb Apache-2.0_WITH_LLVM-exception
+aarch64 libc++ 30 341604 53d0b84a7ba7459024257cb94d5b136fe13ef858567f65a8064b35950799f2ca pool/main/libc/libc++/libc++_30_aarch64.deb Apache-2.0_WITH_LLVM-exception
+aarch64 zlib 1.4 63780 e3027565ae50bcd8ba5113c988b589754ae192c9cc3e6afbe3e4ed7c06b2598e pool/main/z/zlib/zlib_1.4_aarch64.deb Zlib
+aarch64 zstd 1.5.7-1 360488 e1b4a5113648da8de189620ba1fce74c48b2d0833d9043391b9a1c91fb606fd3 pool/main/z/zstd/zstd_1.5.7-1_aarch64.deb BSD-3-Clause
+aarch64 libxml2 2.15.4-1 442652 d315861bbcf716cfb088f53cddab9fb6a96430cc66769f79774cc69c2f53bcff pool/main/libx/libxml2/libxml2_2.15.4-1_aarch64.deb MIT
+aarch64 libiconv 1.19.1 562252 a1c6323eff4f660e16ae6f5832356444b3269c19a4f61146355a49e7c4be5ed1 pool/main/libi/libiconv/libiconv_1.19.1_aarch64.deb LGPL-2.1-or-later
+aarch64 liblzma 5.8.4 194796 44e95e6e60dddb3705e60a344a4f009a1085a210797342b721eaff41b44033c0 pool/main/libl/liblzma/liblzma_5.8.4_aarch64.deb 0BSD
+aarch64 libandroid-glob 0.6-3 7032 2276ae8adedf0db76c2f4ffc94cc4cceb2f4f5d78e021b54e2e046d1233e7826 pool/main/liba/libandroid-glob/libandroid-glob_0.6-3_aarch64.deb BSD-3-Clause
+aarch64 libffi 3.8.1 35808 9e13f3b5c40625c384101992bb669a278e07d9e2baa37d286d7ed164288fab1a pool/main/libf/libffi/libffi_3.8.1_aarch64.deb MIT
+x86_64 clang 21.1.8-3 33150040 923616704b12bce7679b6b41b7c4a6655823fc67cc99c020ddf9ea5721ac4ee0 pool/main/c/clang/clang_21.1.8-3_x86_64.deb Apache-2.0_WITH_LLVM-exception
+x86_64 lld 21.1.8-3 3091428 970ea37e44d0b398dca785ef276bbf35a6e0993ef6700e11f15df599c06358cd pool/main/l/lld/lld_21.1.8-3_x86_64.deb Apache-2.0_WITH_LLVM-exception
+x86_64 libllvm 21.1.8-3 33795588 4b3bc509e727fc41c45682795129f29922b6f931e7391b6b287bd4c14bccdd7a pool/main/libl/libllvm/libllvm_21.1.8-3_x86_64.deb Apache-2.0_WITH_LLVM-exception
+x86_64 libc++ 30 367792 c9bcd9a8067a19c9c0e4893a72d314a2e37d6b67ce8dd05c67b9bbacad044b4f pool/main/libc/libc++/libc++_30_x86_64.deb Apache-2.0_WITH_LLVM-exception
+x86_64 zlib 1.4 74188 55ab8f16e492d6ed03c2e2bf701af52cf54a313442dd7adedd3d6f3e3eba2e4f pool/main/z/zlib/zlib_1.4_x86_64.deb Zlib
+x86_64 zstd 1.5.7-1 450320 a76ba6c3d8742819bf4fff7780eb2e022269412700fc8f4471f530cc0d81833f pool/main/z/zstd/zstd_1.5.7-1_x86_64.deb BSD-3-Clause
+x86_64 libxml2 2.15.4-1 470380 b25b5b18185b4d9f61fc63d2d8ec11fadb5755b42e01c6afef9f5ad2abd6fb78 pool/main/libx/libxml2/libxml2_2.15.4-1_x86_64.deb MIT
+x86_64 libiconv 1.19.1 564832 3eb0c454676ad24d26c79601721b2eb3f9485c611ad0179fb86b17229344f46d pool/main/libi/libiconv/libiconv_1.19.1_x86_64.deb LGPL-2.1-or-later
+x86_64 liblzma 5.8.4 199316 100ea7503a0b9ecffa45e1f168d035651f2eb7aedbebe71dd21fc0da4a84ef16 pool/main/libl/liblzma/liblzma_5.8.4_x86_64.deb 0BSD
+x86_64 libandroid-glob 0.6-3 7256 33b5d2ce934e89d50363e7ea267cea697da937d14de9fcea78cc7271956ef86e pool/main/liba/libandroid-glob/libandroid-glob_0.6-3_x86_64.deb BSD-3-Clause
+x86_64 libffi 3.8.1 38948 1a10292f4fe21e17b89337172ed6493bd6314b01923ba54d067355ef5efc00fc pool/main/libf/libffi/libffi_3.8.1_x86_64.deb MIT

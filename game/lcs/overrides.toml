@@ -1,0 +1,146 @@
+# GTA: Liberty City Stories (USA, SLUS-21423 v1.01; SYSTEM.CNF VER 1.01) - bring-up config, merged by
+# python tools/make_config.py --game lcs --elf SLUS_214.23 --functions <map> - <analyzer.toml>
+#
+# The same SDK adjustments as game/vcs/overrides.toml, at LCS's addresses (each checked against VCS's copy: the same
+# instructions but for jump / lui targets). The frame-rate patches (at the end) are LCS twins of VCS's.
+
+drop_stubs = [
+]
+
+stubs = [
+  # _lf_bind spins until the IOP ROM's LOADFILE RPC server answers; modules load through the runtime's stub
+  "ret0@0x00382CA8",
+  # libfileio directory API -> runtime (served from the mapped disc)
+  "sceDopen@0x00382750",
+  "sceDclose@0x00382818",
+  "sceDread@0x00382980",
+  # libcdvd calls that RPC the IOP ROM's cdvdfsv server, which doesn't exist here
+  "sceCdSearchFile@0x00365758",
+  "sceCdSearchFile@0x00365458",  # sceCdLayerSearchFile(fp, name, layer): same args, layer ignored
+  "sceCdGetDiskType@0x00366280", # sceCdGetDiskType2
+  "sceCdDiskReady@0x00365E20",   # sceCdDiskReady_old
+  # The kernel library's syscall wrappers (Ghidra names them in VCS; the analyzer doesn't): bound to the runtime's
+  # handlers as in VCS - VCS's names at their LCS addresses (the same block, 0xEA040 lower; syscall numbers checked)
+  "SetGsCrt@0x0037D260",  # syscall 2
+  "AddIntcHandler@0x0037D340",  # syscall 16
+  "AddIntcHandler@0x0037D350",  # syscall 16
+  "RemoveIntcHandler@0x0037D360",  # syscall 17
+  "AddDmacHandler@0x0037D370",  # syscall 18
+  "AddDmacHandler@0x0037D380",  # syscall 18
+  "RemoveDmacHandler@0x0037D390",  # syscall 19
+  "EnableIntc@0x0037D3A0",  # syscall 20
+  "DisableIntc@0x0037D3B0",  # syscall 21
+  "EnableDmac@0x0037D3C0",  # syscall 22
+  "DisableDmac@0x0037D3D0",  # syscall 23
+  "CreateThread@0x0037D460",  # syscall 32
+  "DeleteThread@0x0037D470",  # syscall 33
+  "StartThread@0x0037D480",  # syscall 34
+  "TerminateThread@0x0037D4B0",  # syscall 37
+  "ChangeThreadPriority@0x0037D4F0",  # syscall 41
+  "RotateThreadReadyQueue@0x0037D510",  # syscall 43
+  "GetThreadId@0x0037D550",  # syscall 47
+  "ReferThreadStatus@0x0037D560",  # syscall 48
+  "SleepThread@0x0037D580",  # syscall 50
+  "WakeupThread@0x0037D590",  # syscall 51
+  "iWakeupThread@0x0037D5A0",  # syscall -52
+  "SuspendThread@0x0037D5D0",  # syscall 55
+  "CreateSema@0x0037D660",  # syscall 64
+  "DeleteSema@0x0037D670",  # syscall 65
+  "SignalSema@0x0037D680",  # syscall 66
+  "iSignalSema@0x0037D690",  # syscall -67
+  "WaitSema@0x0037D6A0",  # syscall 68
+  "PollSema@0x0037D6B0",  # syscall 69
+  "SetOsdConfigParam@0x0037D700",  # syscall 74
+  "GetOsdConfigParam@0x0037D710",  # syscall 75
+  "FlushCache@0x0037D8E0",  # syscall 100
+  "sceSifStopDma@0x0037D930",  # syscall 107
+  "GsPutIMR@0x0037D9A0",  # syscall 113
+  "SetVSyncFlag@0x0037D9D0",  # syscall 115
+  "sceSifDmaStat@0x0037DA00",  # syscall 118
+  "sceSifSetDma@0x0037DA20",  # syscall 119
+  "isceSifSetDma@0x0037DA30",  # syscall -119
+  "sceSifSetDChain@0x0037DA40",  # syscall 120
+  "isceSifSetDChain@0x0037DA50",  # syscall -120
+  "sceSifSetReg@0x0037DA60",  # syscall 121
+  "sceSifGetReg@0x0037DA70",  # syscall 122
+  "Deci2Call@0x0037DA90",  # syscall 124
+  "GetMemorySize@0x0037DAC0",  # syscall 127
+  "InitTLB@0x0037DAD0",  # syscall 130
+]
+
+# Instruction patches (address -> replacement word), applied by the recompiler: the code that misbehaved with a time step
+# under CTimer's 0.5 floor (1/100 s), which independent timing lowers to 0.2 (src/game/lcs_framerate.cpp: 240 fps). Each
+# is the twin of a game/vcs/overrides.toml patch unless said otherwise; steps >= 0.5 (>= 1.0 for the cameras) run
+# exactly as before. 0x3C013A83 = `lui $at, 0x3A83` (0.001 in place of 0.5).
+#
+# FUN_001D5830 (ped animation movement, VCS FUN_001F1D38) turns the frame's root displacement into the ped's move
+# velocity (+0x4D8 / +0x4DC): `if (ms_fTimeStep < 0.5) v *= 0.5; else v *= 1 / ms_fTimeStep;` - the branch dead on the
+# PS2 and wrong below the floor (peds at a quarter of their speed). The 0.5 ($f3, 0x1D597C) is the compare's and the
+# multiply's only; 0.001 sends every real step down the 1 / step path.
+[[patches]]
+address = "0x001D5978"
+value = "0x3C013A83"
+
+# FUN_001D6F30 (LCS only; no VCS patch): a ped's stuck test counts frames (+0x348) against `50 / (max(step, 0.5) * 4)`
+# and `50 / (max(step, 0.5) * 2)` - 1/4 s and 1/2 s of frames; below the floor too few frames, so it gave up sooner.
+# Each 0.5 is the max.s operand only ($f2 at 0x1D938C, $f0 at 0x1D9484 / 0x1D99D8, rewritten before any other read).
+[[patches]]
+address = "0x001D9388"
+value = "0x3C013A83"
+[[patches]]
+address = "0x001D9480"
+value = "0x3C013A83"
+[[patches]]
+address = "0x001D99D4"
+value = "0x3C013A83"
+
+# CBike::ProcessControl FUN_00157990 (vtable 0x3AC1B0 slot 4; VCS FUN_00337208): the lean from the sideways change of
+# speed, `dv / (max(step, 0.5) * 0.008)`; $f1 = 0.5 only the max.s operand (0x15BBF8), reloaded at 0x15BC24.
+[[patches]]
+address = "0x0015BBE0"
+value = "0x3C013A83"
+
+# Vehicles in water (VCS FUN_00138B68 / FUN_00336CB8): the buoyancy impulse's z over `mass * max(step, 0.5) * 0.008`
+# is the share under water (drag pow(1 - share * 0.05, step), the sinking thresholds). Cars FUN_00127458 load the 0.5
+# on two paths ($f2, max.s at 0x127520, reloaded 0x12752C), bikes FUN_001574E8 once ($f1, max.s 0x15759C, reloaded
+# 0x1575A8).
+[[patches]]
+address = "0x001274E4"
+value = "0x3C013A83"
+[[patches]]
+address = "0x00127508"
+value = "0x3C013A83"
+[[patches]]
+address = "0x00157584"
+value = "0x3C013A83"
+
+# Boats (VCS FUN_0019FDA0's rudder force): the ProcessControl at 0x17ECA0 (vtable 0x3ACEC0, CBike's slot) scales a
+# force by `max(step, 0.5)` (0x180D68) where the rest is times the step; $f1 = 0.5 only the max.s operand (reloaded
+# at 0x180D7C).
+[[patches]]
+address = "0x00180D4C"
+value = "0x3C013A83"
+
+# The follow cameras (VCS FUN_0029DAB0 / FUN_0029FAF0): the automatic turn toward behind the player is made a speed by
+# `(new beta - beta) / max(step, 1.0)` - on foot FUN_00281E90 (0x282E28), behind a vehicle FUN_00283EB8 (0x284A3C):
+# step times too slow above 50 fps. The 1.0 registers ($f2, $f3) are read again, so the max.s moves onto the two
+# hazard nops after it, with 0.001 in $f5 (not read before the next call in either function, nor by FUN_00361820):
+# `lui $at, 0x3A83; mtc1 $at, $f5; max.s $fD, $fS, $f5`. $at is written again before any read.
+[[patches]]
+address = "0x00282E28"
+value = "0x3C013A83"
+[[patches]]
+address = "0x00282E2C"
+value = "0x44812800"
+[[patches]]
+address = "0x00282E30"
+value = "0x46050028"
+[[patches]]
+address = "0x00284A3C"
+value = "0x3C013A83"
+[[patches]]
+address = "0x00284A40"
+value = "0x44812800"
+[[patches]]
+address = "0x00284A44"
+value = "0x46050868"

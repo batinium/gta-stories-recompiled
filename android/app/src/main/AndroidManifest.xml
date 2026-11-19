@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android] SDL3's activity (org.libsdl.app, from SDL's android-project) as VCSActivity: landscape, full screen,
+     gamepads / mice / keyboards. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x403000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-feature android:name="android.hardware.type.pc" android:required="false" />
+
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The in-app updater only (UpdateMenu.java, docs/ANDROID.md "Releases and updates"): GitHub's release list and the
+         release's APK, when the player asks (or once a day if they turned that on), then Android's own installer -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- [phonebuild] "Build code pack on this phone" (BuildService): the compiler's download (INTERNET, above), a
+         foreground service with a progress notification, a partial wake lock while it compiles -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:hasFragileUserData="true"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+        android:hardwareAccelerated="true"
+        android:appCategory="game"
+        android:isGame="true"
+        android:enableOnBackInvokedCallback="false">
+
+        <!-- The front end: the disc, the game library, Play (LauncherActivity.java); it lays itself out from
+             the window size, so a fold / unfold or a turn only resizes it -->
+        <activity
+            android:name=".LauncherActivity"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".BuildService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- The game in a process of its own (as the earlier port's :game): SDL's native side can't start twice in one
+             process, so the process ends with the game (VCSActivity.onDestroy) and every Play starts clean -->
+        <activity
+            android:name=".VCSActivity"
+            android:process=":game"
+            android:label="@string/app_name"
+            android:alwaysRetainTaskState="true"
+            android:launchMode="singleInstance"
+            android:screenOrientation="fullUser"
+            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:preferMinimalPostProcessing="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

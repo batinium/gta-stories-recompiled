@@ -1,0 +1,17 @@
+// [android] The Android app (docs/ANDROID.md). Built by python3 tools/android.py, which fetches SDL's Java sources
+// (the same SDL3 release src/platform/CMakeLists.txt pins) and passes their folder as -PvcsSdlDir.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "VCSRecomp"
+include ':app'

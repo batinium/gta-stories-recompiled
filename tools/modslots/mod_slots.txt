@@ -1,0 +1,282 @@
+# The mod manager's slot tables and name matching, for both games (docs/ANDROID.md "Mods", docs/LCS.md "Mods").
+# ONE file, read by tools/mods.py (the desktop launcher's Mods sheet) and by the Android launcher (ModFormats.java;
+# packed into the APK's assets by android/app/build.gradle). Plain text so both read it without a JSON library.
+#
+#   <game> vehicle <model id> | <model name> | <label> | <class> | <names> | <similar>
+#   <game> weapon <type> <model id> | <model name> | <label> | <class> | <names> | <similar>
+#
+# Names are compared lower-case with everything but a-z / 0-9 dropped (pistol_silenced = pistolsilenced). A mod's line
+# or model name is looked up in this order, and the manager says which rule matched:
+#   "matched by name"   the slot's own model name (column 2)
+#   "alias"             <names>: the same vehicle / weapon under another name (GTA III / VC / SA / the game's own key)
+#   "nearest equivalent" <similar>: a vehicle / weapon the game doesn't have, put into the closest one of the same
+#                       class (an SA sports car into a sports car); the player is told and can pick another
+#   "picked by you"     the player chose the slot (the manager's slot picker)
+# A name may appear once per game and kind. Weapon types and model ids: VCS from the trainer (vcs_trainer.cpp);
+# LCS read from the game in a run (weapon info *0x3D9B48 + 4, 0x70 per type, +0x60 the model; model infos *0x3D8720,
+# +0x10 type 6 = vehicle, +0x2E the game's text key - the key is listed under <names>; labels from the game's text).
+# LCS leaves out what the trainer leaves out (train, ferry, the script-only helicopters and airliner, RC toys).
+
+# ---- Vice City Stories: vehicles (model ids 170-280) ------------------------------------------------------------------
+vcs vehicle 170 | 6atv | 6 Wheel ATV | offroad | | bandito dune quadbike
+vcs vehicle 171 | admiral | Admiral | sedan | | elegant nebula sunrise columb
+vcs vehicle 172 | cheetah | Cheetah | sports | | bullet zr350 supergt
+vcs vehicle 173 | autogyro | Autogyro | heli | |
+vcs vehicle 174 | baggage | Baggage | utility | | tug
+vcs vehicle 175 | banshee | Banshee | sports | | buffalo
+vcs vehicle 176 | peren | Perennial | wagon | perennial perenial | regina2 solair
+vcs vehicle 177 | blistac | Blista Compact | compact | blista blistacompact | club flash
+vcs vehicle 178 | bmxboy | BMX | bicycle | bmx | bike mtbike
+vcs vehicle 179 | bmxgirl | BMX (girl) | bicycle | |
+vcs vehicle 180 | bobcat | Bobcat | pickup | | towtruck
+vcs vehicle 181 | dozer | Bulldozer | utility | bulldozer |
+vcs vehicle 182 | burrito | Burrito | van | | toyz
+vcs vehicle 183 | cabbie | Cabbie | taxi | | borgnine
+vcs vehicle 184 | caddy | Caddy | utility | | kart
+vcs vehicle 185 | speeder2 | Speeder (2) | boat | |
+vcs vehicle 186 | pimp | Pimp | luxury | |
+vcs vehicle 187 | deluxo | Deluxo | coupe | | esprit
+vcs vehicle 188 | huey | Huey | heli | | cargobob
+vcs vehicle 189 | hueyhosp | Air Ambulance | heli | |
+vcs vehicle 190 | electrag | Electra | sedan | electra |
+vcs vehicle 191 | electrap | Electra (police) | emergency | |
+vcs vehicle 192 | esperant | Esperanto | muscle | esperanto | cadrona
+vcs vehicle 193 | fbicar | FBI car | emergency | | fbiwashington
+vcs vehicle 194 | firetruk | Fire Truck | emergency | firetruck | firela
+vcs vehicle 195 | glendale | Glendale | sedan | | bloodra bloodrb
+vcs vehicle 196 | greenwoo | Greenwood | sedan | greenwood | primo emperor
+vcs vehicle 197 | hermes | Hermes | luxury | |
+vcs vehicle 198 | hovercr | Hovercraft | boat | hovercraft | vortex
+vcs vehicle 199 | idaho | Idaho | coupe | |
+vcs vehicle 200 | landstal | Landstalker | suv | landstalker | huntley
+vcs vehicle 201 | manana | Manana | compact | | previon
+vcs vehicle 202 | moped | Moped | bike | |
+vcs vehicle 203 | oceanic | Oceanic | sedan | |
+vcs vehicle 204 | vicechee | Vice Cheetah | emergency | vicecheetah |
+vcs vehicle 205 | sanchez | Sanchez | bike | dirtbike | sanchez2 bf400
+vcs vehicle 206 | stallion | Stallion | muscle | | diablos clover
+vcs vehicle 207 | policem | Police | emergency | police | copcarla copcarsf copcarvg copcarru
+vcs vehicle 208 | bobo | Bobo | bike | |
+vcs vehicle 209 | patriot | Patriot | offroad | | monster
+vcs vehicle 210 | pony | Pony | van | |
+vcs vehicle 211 | sentinel | Sentinel | sedan | | kuruma mafia premier merit intruder vincent willard
+vcs vehicle 212 | pcj600 | PCJ-600 | bike | pcj | fcr900 nrg500
+vcs vehicle 213 | maverick | Maverick | heli | | raindanc
+vcs vehicle 214 | reefer | Reefer | boat | |
+vcs vehicle 215 | speeder | Speeder | boat | | ghost
+vcs vehicle 216 | linerun | Linerunner | truck | | packer tanker roadtrain petro
+vcs vehicle 217 | walton | Walton | pickup | | sadler yosemite picador
+vcs vehicle 218 | barracks | Barracks | military | barracksol barrack |
+vcs vehicle 219 | predator | Predator | boat | | launch
+vcs vehicle 220 | flatbed | Flatbed | truck | | dumper
+vcs vehicle 221 | barracks2 | Barracks (2) | military | |
+vcs vehicle 222 | biplane | Biplane | plane | | dodo stunt cropdust
+vcs vehicle 223 | moonbeam | Moonbeam | van | |
+vcs vehicle 224 | rumpo | Rumpo | van | | hoods campvan
+vcs vehicle 225 | yola | Yola | utility | |
+vcs vehicle 226 | taxi | Taxi | taxi | | kaufman zebra
+vcs vehicle 227 | ambulan | Ambulance | emergency | ambulance |
+vcs vehicle 228 | stretch | Stretch | luxury | | lovefist
+vcs vehicle 229 | faggio | Faggio | bike | | pizzaboy noodleboy
+vcs vehicle 230 | quad | Quad | offroad | |
+vcs vehicle 231 | angel | Angel | bike | | angel2
+vcs vehicle 232 | freeway | Freeway | bike | | wayfarer
+vcs vehicle 233 | jetski | Jetski | boat | |
+vcs vehicle 234 | enforce | Enforcer | emergency | enforcer | swatvan fbitruck
+vcs vehicle 235 | boxvil | Boxville | van | boxville | panlant
+vcs vehicle 236 | benson | Benson | truck | | mrwongs bellyup
+vcs vehicle 237 | coach | Coach | bus | | bus
+vcs vehicle 238 | mule | Mule | truck | |
+vcs vehicle 239 | voodoo | Voodoo | lowrider | | yardie remington savanna blade tahoma slamvan
+vcs vehicle 240 | securica | Securicar | truck | securicar |
+vcs vehicle 241 | trash | Trashmaster | truck | trashmaster | trashm
+vcs vehicle 242 | topfun | Top Fun | van | |
+vcs vehicle 243 | yankee | Yankee | truck | |
+vcs vehicle 244 | mrwhoop | Mr Whoopee | van | mrwhoopee whoopee | hotdog
+vcs vehicle 245 | sandking | Sandking | offroad | | rancher
+vcs vehicle 246 | rhino | Rhino | military | |
+vcs vehicle 247 | dinghy | Dinghy | boat | |
+vcs vehicle 248 | marquis | Marquis | boat | |
+vcs vehicle 249 | rio | Rio | boat | |
+vcs vehicle 250 | tropic | Tropic | boat | |
+vcs vehicle 251 | forklift | Forklift | utility | | tractor
+vcs vehicle 252 | streetfi | Streetfighter | bike | streetfighter |
+vcs vehicle 253 | virgo | Virgo | coupe | |
+vcs vehicle 254 | stinger | Stinger | sports | | feltzer windsor hotknife spider yakuza
+vcs vehicle 255 | bfinject | BF Injection | offroad | bfinjection |
+vcs vehicle 256 | pheonix | Phoenix | muscle | phoenix | pontiac
+vcs vehicle 257 | squalo | Squalo | boat | |
+vcs vehicle 258 | jetmax | Jetmax | boat | |
+vcs vehicle 259 | mesa | Mesa Grande | offroad | mesagrande |
+vcs vehicle 260 | vcnmav | VCN Maverick | heli | vcnmaverick |
+vcs vehicle 261 | polmav | Police Maverick | heli | policemaverick |
+vcs vehicle 262 | sparrow | Sparrow | heli | |
+vcs vehicle 263 | seaspar | Sea Sparrow | heli | seasparrow | leviathn
+vcs vehicle 264 | scarab | Scarab | boat | |
+vcs vehicle 265 | cholo | Cholo Sabre | muscle | cholosabre |
+vcs vehicle 266 | comet | Comet | sports | | elegy jester uranus alpha euros
+vcs vehicle 267 | cuban | Cuban Hermes | luxury | cubanhermes |
+vcs vehicle 268 | fbiran | FBI Rancher | emergency | fbiranch fbirancher |
+vcs vehicle 269 | gangbur | Gang Burrito | van | gangburrito |
+vcs vehicle 270 | infernus | Infernus | sports | | turismo shelby
+vcs vehicle 271 | regina | Regina | wagon | | stratum
+vcs vehicle 272 | sabre | Sabre | muscle | | tampa buccanee majestic hotrod corpse
+vcs vehicle 273 | sabretb | Sabre Turbo | muscle | sabretur sabreturbo |
+vcs vehicle 274 | sentxs | Sentinel XS | sports | sentinelxs | sultan
+vcs vehicle 275 | hunter | Hunter | heli | |
+vcs vehicle 276 | washin | Washington | sedan | washing washington | stafford romero hearse
+vcs vehicle 277 | coastg | Coast Guard | boat | coastguard |
+vcs vehicle 278 | skimmer | Skimmer | plane | |
+vcs vehicle 279 | chopper | Chopper | bike | |
+vcs vehicle 280 | aeroplane | Aeroplane | plane | airtrain |
+
+# ---- Vice City Stories: weapons (type, model id) ---------------------------------------------------------------------
+vcs weapon 1 331 | brassknuckle | Brass Knuckles | melee | brassknuckles |
+vcs weapon 2 332 | screwdriver | Butterfly Knife | melee | butterflyknife |
+vcs weapon 3 333 | golfclub | Golf Club | melee | | poolcue
+vcs weapon 4 334 | nitestick | Nightstick | melee | nightstick |
+vcs weapon 5 335 | knifecur | Knife | melee | knife |
+vcs weapon 6 336 | bat | Baseball Bat | melee | baseballbat |
+vcs weapon 7 337 | axe | Axe | melee | | hammer shovel
+vcs weapon 8 338 | cleaver | Gaff Hook | melee | gaffhook |
+vcs weapon 9 339 | machete | Machete | melee | |
+vcs weapon 10 340 | katana | Katana | melee | |
+vcs weapon 11 341 | chnsaw | Chainsaw | melee | chainsaw |
+vcs weapon 12 342 | grenade | Grenades | thrown | grenades |
+vcs weapon 13 - | detonategrenade | Remote Grenades | thrown | remotegrenade | satchel bomb
+vcs weapon 14 368 | landmine | Land Mines | thrown | landmines |
+vcs weapon 16 343 | teargas | Tear Gas | thrown | |
+vcs weapon 17 344 | molotov | Molotovs | thrown | molotovs |
+vcs weapon 19 346 | colt45 | Pistol | pistol | pistol | pistolsilenced silenced
+vcs weapon 20 347 | python | Equalizer | pistol | equalizer | deserteagle desert357
+vcs weapon 21 349 | chromegun | Shotgun | shotgun | shotgun |
+vcs weapon 22 350 | spas12shotgun | Spaz Shotgun | shotgun | spas12 shotgspa combatshotgun |
+vcs weapon 23 351 | stubbyshotgun | Stubby Shotgun | shotgun | sawnoff buddyshot stubby |
+vcs weapon 24 353 | uzi | Micro SMG | smg | microuzi microsmg |
+vcs weapon 25 354 | tec9 | Scorpion | smg | scorpion |
+vcs weapon 26 355 | silencedingram | Mac 10 | smg | ingram ingramsl mac10 |
+vcs weapon 27 356 | mp5 | SMG | smg | mp5lng |
+vcs weapon 28 352 | m4 | Assault Rifle | rifle | m16 |
+vcs weapon 29 348 | ruger | AK | rifle | ak47 ak |
+vcs weapon 30 357 | sniperrifle | Sniper Rifle | sniper | sniper | cuntgun
+vcs weapon 31 358 | laserscope | Laser Sniper | sniper | laser |
+vcs weapon 32 359 | rocketlauncher | Rocket Launcher | heavy | rocketla rocket | heatseek
+vcs weapon 33 360 | flamethrower | Flame-Thrower | heavy | flame |
+vcs weapon 34 361 | m249 | M249 | heavy | m60 |
+vcs weapon 35 362 | minigun | Minigun | heavy | |
+vcs weapon 38 364 | camera | Camera | special | |
+
+# ---- Liberty City Stories: vehicles (model ids 130-216; names: GTA III's model names, the game's key under names) ----
+lcs vehicle 130 | spider | Deimos SP | sports | deimos deimossp | feltzer windsor comet
+lcs vehicle 131 | landstal | Landstalker | suv | landstk landstalker | huntley rancher
+lcs vehicle 132 | idaho | Idaho | coupe | | virgo
+lcs vehicle 133 | stinger | Stinger | sports | | hotknife
+lcs vehicle 134 | linerun | Linerunner | truck | linerunner | packer tanker roadtrain petro
+lcs vehicle 135 | peren | Perennial | wagon | perennial perenial | regina solair
+lcs vehicle 136 | sentinel | Sentinel | sedan | sentinl | admiral elegant premier merit emperor washing washin
+lcs vehicle 137 | patriot | Patriot | offroad | | mesa sandking dune monster
+lcs vehicle 138 | firetruk | Firetruck | emergency | firetrk firetruck | firela
+lcs vehicle 139 | trash | Trashmaster | truck | trashm trashmaster |
+lcs vehicle 140 | stretch | Stretch | luxury | | lovefist stafford
+lcs vehicle 141 | manana | Manana | compact | | glendale oceanic previon
+lcs vehicle 142 | infernus | Infernus | sports | inferns | turismo
+lcs vehicle 143 | blista | Blista | compact | blistac blistacompact | club flash
+lcs vehicle 144 | pony | Pony | van | |
+lcs vehicle 145 | mule | Mule | truck | | benson boxville boxvil
+lcs vehicle 146 | cheetah | Cheetah | sports | | bullet zr350 supergt vicechee
+lcs vehicle 147 | ambulan | Ambulance | emergency | ambulance |
+lcs vehicle 148 | fbicar | FBI Cruiser | emergency | fbicruiser | fbiranch fbiran
+lcs vehicle 149 | moonbeam | Moonbeam | van | moonbm |
+lcs vehicle 150 | esperant | Esperanto | muscle | esperan esperanto | cadrona
+lcs vehicle 151 | taxi | Taxi | taxi | | kaufman zebra
+lcs vehicle 152 | kuruma | Kuruma | sedan | | sultan vincent intruder sunrise uranus nebula
+lcs vehicle 153 | bobcat | Bobcat | pickup | | walton sadler yosemite picador towtruck
+lcs vehicle 154 | mrwhoop | Mr Whoopee | van | whoopee mrwhoopee | hotdog
+lcs vehicle 155 | bfinject | BF Injection | offroad | bfinjc bfinjection | bandito
+lcs vehicle 156 | hearse | Hearse | luxury | | romero
+lcs vehicle 157 | police | Police | emergency | policar policem | copcarla copcarsf copcarvg copcarru
+lcs vehicle 158 | enforcer | Enforcer | emergency | enforcr enforce | swatvan fbitruck
+lcs vehicle 159 | securica | Securicar | truck | securi securicar |
+lcs vehicle 160 | banshee | Banshee | sports | | buffalo elegy jester alpha euros
+lcs vehicle 161 | bus | Bus | bus | |
+lcs vehicle 162 | rhino | Rhino | military | |
+lcs vehicle 163 | barracks | Barracks OL | military | barrcks barracksol |
+lcs vehicle 164 | dodo | Dodo | plane | | skimmer biplane stunt cropdust
+lcs vehicle 165 | coach | Coach | bus | |
+lcs vehicle 166 | cabbie | Cabbie | taxi | |
+lcs vehicle 167 | stallion | Stallion | muscle | stalion | clover tampa sabre sabretb sabretur buccanee majestic broadway cholo
+lcs vehicle 168 | rumpo | Rumpo | van | | burrito gangbur topfun
+lcs vehicle 170 | bellyup | Triad Fish Van | van | triad triadfishvan |
+lcs vehicle 171 | mrwongs | Mr Wongs | van | |
+lcs vehicle 172 | mafia | Leone Sentinel | sedan | mafiacr leonesentinel |
+lcs vehicle 173 | yardie | Yardie Lobo | lowrider | yardicr yardielobo | voodoo remington savanna blade tahoma slamvan
+lcs vehicle 174 | yakuza | Yakuza Stinger | sports | yakuzcr yakuzastinger |
+lcs vehicle 175 | diablos | Diablo Stallion | muscle | diablcr diablostallion |
+lcs vehicle 176 | columb | Cartel Cruiser | sedan | colomcr cartelcruiser | greenwoo greenwood primo willard
+lcs vehicle 177 | hoods | Hoods Rumpo XL | van | hoodscr |
+lcs vehicle 178 | panlant | Panlantic | van | panlantic |
+lcs vehicle 179 | flatbed | Flatbed | truck | | dumper
+lcs vehicle 180 | yankee | Yankee | truck | |
+lcs vehicle 181 | borgnine | Bickle'76 | taxi | borgnin bickle |
+lcs vehicle 182 | toyz | TOYZ | van | |
+lcs vehicle 183 | campvan | Campaign Rumpo | van | campaignrumpo |
+lcs vehicle 184 | ballot | Ballot Van | van | ballotvan |
+lcs vehicle 185 | shelby | Hellenbach GT | sports | hellenbach hellenbachgt |
+lcs vehicle 186 | pontiac | Phobos VT | muscle | phobos phobosvt | phoenix pheonix
+lcs vehicle 187 | esprit | V8 Ghost | sports | v8ghost | deluxo
+lcs vehicle 188 | barrack | Barracks OL (2) | military | barracks2 |
+lcs vehicle 189 | hotrod | Thunder-Rodd | muscle | thunderrodd | hotring hotrina hotrinb
+lcs vehicle 190 | sindacco | Sindacco Argento | sedan | sindacoargento sindaccoargento | hermes cuban
+lcs vehicle 191 | forelli | Forelli Exsess | luxury | forelliexsess | pimp
+lcs vehicle 193 | ghost | Ghost | boat | | marquis tropic rio
+lcs vehicle 194 | speeder | Speeder | boat | | squalo jetmax dinghy speeder2 jetski scarab
+lcs vehicle 195 | reefer | Reefer | boat | |
+lcs vehicle 196 | predator | Predator | boat | predatr | coastg launch
+lcs vehicle 202 | angel | Angel | bike | | wayfarer
+lcs vehicle 203 | pizzaboy | Pizzaboy | bike | pizzabo | moped
+lcs vehicle 204 | noodleboy | Noodleboy | bike | noodlbo |
+lcs vehicle 205 | pcj600 | PCJ-600 | bike | pcj | fcr900 nrg500 streetfi bobo
+lcs vehicle 206 | faggio | Faggio | bike | |
+lcs vehicle 207 | freeway | Freeway | bike | | chopper
+lcs vehicle 208 | angel2 | Avenger | bike | avenger |
+lcs vehicle 209 | sanchez2 | Manchez | bike | sanch2 manchez | bf400 quad
+lcs vehicle 210 | sanchez | Sanchez | bike | dirtbike |
+lcs vehicle 213 | hunter | Hunter | heli | |
+lcs vehicle 214 | maverick | Maverick | heli | maveric | sparrow seaspar huey cargobob leviathn raindanc
+lcs vehicle 215 | polmav | Police Maverick | heli | policemaverick |
+lcs vehicle 216 | vcnmav | VCN Maverick | heli | vcnmaverick | hueyhosp
+
+# ---- Liberty City Stories: weapons (type, model id; read in a run: *0x3D9B48 + 4, +0x60) ---------------------------
+lcs weapon 1 259 | brassknuckle | Brass Knuckles | melee | brassknuckles |
+lcs weapon 2 260 | screwdriver | Screwdriver | melee | |
+lcs weapon 3 261 | golfclub | Golf Club | melee | | poolcue
+lcs weapon 4 262 | nitestick | Nightstick | melee | nightstick |
+lcs weapon 5 263 | knifecur | Knife | melee | knife | butterflyknife
+lcs weapon 6 264 | bat | Baseball Bat | melee | baseballbat |
+lcs weapon 7 265 | hammer | Hammer | melee | | axe shovel
+lcs weapon 8 266 | cleaver | Meat Cleaver | melee | meatcleaver | gaffhook
+lcs weapon 9 267 | machete | Machete | melee | |
+lcs weapon 10 268 | katana | Katana | melee | |
+lcs weapon 11 269 | chnsaw | Chainsaw | melee | chainsaw |
+lcs weapon 12 270 | grenade | Grenades | thrown | grenades |
+lcs weapon 13 - | detonategrenade | Remote Grenades | thrown | remotegrenade | satchel bomb landmine
+lcs weapon 14 271 | teargas | Tear Gas | thrown | |
+lcs weapon 15 272 | molotov | Molotovs | thrown | molotovs |
+lcs weapon 17 274 | colt45 | Pistol | pistol | pistol | pistolsilenced silenced
+lcs weapon 18 275 | python | .357 | pistol | 357 magnum | deserteagle equalizer
+lcs weapon 19 277 | shotgun | Shotgun | shotgun | chromegun |
+lcs weapon 20 278 | spas12shotgun | Combat Shotgun | shotgun | spas12 shotgspa combatshotgun spazshotgun |
+lcs weapon 21 279 | stubbyshotgun | Stubby Shotgun | shotgun | sawnoff buddyshot stubby |
+lcs weapon 22 281 | tec9 | Tec-9 | smg | | scorpion
+lcs weapon 23 282 | uzi | Micro SMG | smg | microuzi microsmg |
+lcs weapon 24 283 | silencedingram | Silenced MAC-10 | smg | ingram ingramsl mac10 |
+lcs weapon 25 284 | mp5 | MP5 | smg | mp5lng smg |
+lcs weapon 26 280 | m4 | M4 | rifle | m16 assaultrifle |
+lcs weapon 27 276 | ak47 | AK-47 | rifle | ruger ak |
+lcs weapon 28 285 | sniperrifle | Sniper Rifle | sniper | sniper | cuntgun
+lcs weapon 29 286 | laserscope | Laser-Scoped Rifle | sniper | laser lasersniper |
+lcs weapon 30 287 | rocketlauncher | Rocket Launcher | heavy | rocketla rocket | heatseek
+lcs weapon 31 288 | flamethrower | Flamethrower | heavy | flame |
+lcs weapon 32 289 | m60 | M60 | heavy | | m249
+lcs weapon 33 290 | minigun | Minigun | heavy | |
+lcs weapon 36 292 | camera | Camera | special | |

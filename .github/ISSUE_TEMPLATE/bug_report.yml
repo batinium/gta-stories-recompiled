@@ -1,0 +1,98 @@
+name: Bug report
+description: The game, launcher or Android app crashes, looks wrong or does not work as described.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Do not attach or link game files, ISOs or save files with copyrighted content.**
+        Logs and screenshots are fine. Questions and setup help go to
+        [Discussions](https://github.com/batinium/gta-stories-recompiled/discussions).
+        A Vice City Stories bug that also happens in the PC version of
+        [gothamor/gta-vcs-recomp](https://github.com/gothamor/gta-vcs-recomp/issues) belongs there.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched the open and closed issues.
+          required: true
+        - label: I am not attaching game files, ISOs, game libraries or saves with copyrighted content.
+          required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options:
+        - Liberty City Stories
+        - Vice City Stories
+        - GTA Stories (both cities)
+        - Launcher only
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown in the launcher (Help / About), also the `VERSION` file in the game folder, or the build tag on Android.
+      placeholder: "e.g. 0.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: serial
+    attributes:
+      label: Disc (PS2, USA)
+      options:
+        - SLUS-21423 (Liberty City Stories)
+        - SLUS-21590 (Vice City Stories)
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: PC or device
+      description: GPU and driver on a PC; phone model, SoC / GPU and Android version on Android.
+      placeholder: "e.g. RTX 3060, driver 560 / Pixel 8, Android 15"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: From starting the game. Mention the mission or place if it matters.
+      placeholder: |
+        1. Start the launcher, Play
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Logs
+      description: |
+        In the launcher, **Help > Make a report** makes a zip of the logs (no game files, no saves): attach it.
+        Or the log files: the game's `build\lcs\run\launcher_game.log` (Vice City Stories: `build\run\launcher_game.log`),
+        GTA Stories: `build\stories\lcs.log` and `vcs-background.log`. On Android: `adb logcat -d -v time -s vcs SDL AndroidRuntime DEBUG libc`.
+        Paste or drag the file here.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or anything else

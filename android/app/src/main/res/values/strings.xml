@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- app_name comes from build.gradle (resValue): "GTA Stories Recompiled" (runtime APK), or "LCS / VCS Recomp Android" for a personal build with one game inside -->
+</resources>

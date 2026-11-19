@@ -1,0 +1,239 @@
+// [android] The native libraries from the repository's own CMakeLists.txt (the NDK's toolchain): libmain.so (SDL, the
+// runtime and our code: the player's game library is loaded into it at start) and libsmoke.so (docs/ANDROID.md).
+plugins {
+    id 'com.android.application'
+}
+
+def sdlDir = project.findProperty('vcsSdlDir')
+if (!sdlDir) {
+    throw new GradleException("No SDL sources: build with python3 tools/android.py (it passes -PvcsSdlDir)")
+}
+// forward slashes for CMake (a Windows path's backslashes would start escapes in its strings)
+sdlDir = sdlDir.toString().replace('\\', '/')
+def glslang = (project.findProperty('vcsGlslang') ?: 'glslangValidator').toString().replace('\\', '/')
+def repoRoot = file('../..').canonicalPath
+// The runtime / game split (docs/ANDROID.md): the APK holds no game code; the player's game library is imported by the
+// launcher. -PvcsBundleGame=true is the personal build instead (tools/android.py build --personal): the game inside
+// libmain.so, from generated/ - such an APK must never be shared.
+def bundleGame = (project.findProperty('vcsBundleGame') ?: 'false').toString() == 'true'
+// [lcs] The game a personal build bundles (CMake VCS_GAME: vcs, lcs) and its generated code (VCS_GENERATED_DIR; empty:
+// generated/ee), and the folder this build writes (-PvcsOutDir: tools/android.py gives each game's personal build its
+// own, so VCS's and LCS's trees don't overwrite each other; default build/android). The runtime-only APK is the same
+// for every game (the game library's stamp names its game): it needs none of these.
+def vcsGame = (project.findProperty('vcsGame') ?: 'vcs').toString()
+if (!(vcsGame in ['vcs', 'lcs']))
+    throw new GradleException("-PvcsGame must be vcs or lcs, not '${vcsGame}'")
+def generatedDir = (project.findProperty('vcsGeneratedDir') ?: '').toString().replace('\\', '/')
+def outDir = (project.findProperty('vcsOutDir') ?: "${repoRoot}/build/android").toString()
+// FFmpeg for the movies (ps2xRuntime's CMakeLists.txt) is built once into this folder, whichever outDir: -PvcsFfmpegCache
+def ffmpegCache = (project.findProperty('vcsFfmpegCache') ?: "${repoRoot}/build/android/ffmpeg").toString().replace('\\', '/')
+// The game library's interface number (src/android/game_abi.h): the launcher refuses a library with another one
+def gameAbi = {
+    def m = (file("${repoRoot}/src/android/game_abi.h").text =~ /(?m)^#define VCS_GAME_ABI (\d+)/)
+    if (!m.find())
+        throw new GradleException("no '#define VCS_GAME_ABI <n>' in src/android/game_abi.h")
+    return m.group(1)
+}()
+// The app's version (docs/ANDROID.md "Releases and updates"): X.Y.Z-N, X.Y.Z the upstream version it is based on
+// (VERSION), N our build on it (android/BUILD_NUMBER: up by one for each release on the same X.Y.Z, back to 1 when
+// VERSION changes). A release is tagged android-vX.Y.Z-N; versionCode keeps the same order (UpdateVersion.code(): the
+// updater compares versions the same way).
+def appVersion = {
+    def upstream = file("${repoRoot}/VERSION").text.trim()
+    def build = file("${repoRoot}/android/BUILD_NUMBER").text.trim()
+    def m = (upstream =~ /^(\d{1,3})\.(\d{1,2})\.(\d{1,2})$/)
+    if (!m.matches())
+        throw new GradleException("VERSION is not X.Y.Z (at most 999.99.99): '${upstream}'")
+    if (!(build ==~ /^[1-9]\d{0,2}$/))
+        throw new GradleException("android/BUILD_NUMBER is not 1..999: '${build}'")
+    def code = ((m.group(1).toInteger() * 100 + m.group(2).toInteger()) * 100 + m.group(3).toInteger()) * 1000 + build.toInteger()
+    return [name: "${upstream}-${build}".toString(), code: code]
+}()
+// Where the in-app updater looks for releases (GET only, unauthenticated); -PvcsUpdateRepo= (empty) turns it off
+def updateRepo = project.hasProperty('vcsUpdateRepo') ? project.property('vcsUpdateRepo').toString()
+        : 'batinium/gta-stories-recompiled'
+// [stories] Both cities on Android (docs/ANDROID.md "Both cities on Android"): a folder of arm64-v8a/libstories_<game>.so
+// (tools/android.py build --stories) packaged beside libmain.so - game code inside: a personal build, never shared
+def storiesLibs = (project.findProperty('vcsStoriesLibs') ?: '').toString().replace('\\', '/')
+// Lossless Scaling frame generation (src/rhi/vulkan/lsfg, GPL-3.0-or-later; docs/ANDROID.md): built in unless -PvcsLsfg=false
+def lsfg = (project.findProperty('vcsLsfg') ?: 'true').toString() != 'false'
+
+// The build tag (branch@commit, +dirty with uncommitted changes): shown by the launcher and written into the game's log,
+// so a report names the code it came from
+def git = { String... args ->
+    try {
+        def p = (['git', '-C', repoRoot] + args.toList()).execute()
+        p.waitFor()
+        return p.exitValue() == 0 ? p.text.trim() : null
+    } catch (Exception ignored) {
+        return null
+    }
+}
+def buildTag = {
+    def commit = git('rev-parse', '--short=10', 'HEAD')
+    if (!commit)
+        return 'unknown'
+    def branch = git('rev-parse', '--abbrev-ref', 'HEAD') ?: '?'
+    def dirty = git('status', '--porcelain', '--untracked-files=no') ? '+dirty' : ''
+    return "${branch}@${commit}${dirty}"
+}()
+
+// The release key comes from the environment: VCS_SIGN_STORE (an existing keystore file),
+// VCS_SIGN_ALIAS and VCS_SIGN_PASS (the store's and the key's password). No key ever lives in this repository
+// (.gitignore keeps *.jks / *.keystore out). Without them a debug build works and a release build stops (preReleaseBuild).
+def signStore = System.getenv('VCS_SIGN_STORE'), signAlias = System.getenv('VCS_SIGN_ALIAS'), signPass = System.getenv('VCS_SIGN_PASS')
+def signMissing = []
+if (!signStore)
+    signMissing << 'VCS_SIGN_STORE (the keystore file)'
+else if (!new File(signStore).isFile())
+    signMissing << "VCS_SIGN_STORE: no file ${signStore}"
+if (!signAlias)
+    signMissing << 'VCS_SIGN_ALIAS (the key in it)'
+if (!signPass)
+    signMissing << 'VCS_SIGN_PASS (its password)'
+
+android {
+    namespace = 'io.github.batinium.vcsrecomp'
+    compileSdk = 35
+    ndkVersion = '28.2.13676358'
+
+    defaultConfig {
+        applicationId = 'com.batinium.gtastories'
+        // [lcs] An LCS personal build is its own app next to VCS's: its own id (.lcs, so its own files / saves / disc)
+        // and name. The runtime-only APK and VCS keep the plain id.
+        if (bundleGame && vcsGame == 'lcs')
+            applicationIdSuffix = '.lcs'
+        // A side-by-side install (VCS_APP_ID_SUFFIX=.test): its own id, files and name, e.g. an APK signed with another
+        // machine's debug key next to the installed app (an update with another key is refused; uninstalling wipes data)
+        def idSuffix = System.getenv('VCS_APP_ID_SUFFIX') ?: ''
+        if (idSuffix)
+            applicationIdSuffix = idSuffix
+        // [lcs] The app is "GTA Stories Recompiled" (both games; LCS first). A personal build with one game inside keeps
+        // the game's own name.
+        resValue 'string', 'app_name', idSuffix ? 'GTA Stories Recompiled (' + idSuffix.replace('.', '') + (storiesLibs ? ', both cities' : '') + ')'
+                : (storiesLibs ? 'GTA Stories Recompiled (both cities)'
+                : (bundleGame ? (vcsGame == 'lcs' ? 'LCS Recomp Android' : 'VCS Recomp Android') : 'GTA Stories Recompiled'))
+        // Android 13: Vulkan 1.3 drivers ship with it, and bionic's backtrace() (src/debug/crash.cpp) starts there
+        minSdk = 33
+        targetSdk = 35
+        versionCode = appVersion.code
+        versionName = appVersion.name
+        buildConfigField 'String', 'VCS_BUILD_TAG', "\"${buildTag}\""
+        buildConfigField 'boolean', 'VCS_LSFG', "${lsfg}"
+        buildConfigField 'boolean', 'VCS_GAME_BUNDLED', "${bundleGame}"
+        buildConfigField 'String', 'VCS_GAME', "\"${vcsGame}\"" // [lcs] the bundled game (a personal build)
+        buildConfigField 'int', 'VCS_GAME_ABI', "${gameAbi}"
+        buildConfigField 'boolean', 'VCS_STORIES', "${storiesLibs ? 'true' : 'false'}" // [stories]
+        buildConfigField 'String', 'VCS_UPDATE_REPO', "\"${updateRepo}\""
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                // c++_shared: one C++ runtime for libmain.so and the game library loaded beside it (exceptions,
+                // iostreams and the allocator cross between them)
+                arguments '-DANDROID_STL=c++_shared',
+                          "-DVCS_GLSLANG=${glslang}",
+                          "-DFETCHCONTENT_SOURCE_DIR_SDL3=${sdlDir}",
+                          '-DPS2X_LTO=OFF',
+                          '-DPS2X_CPU=ARM64',
+                          // as tools/toolchain.py's configure: no per-function enter / exit trace (it floods the log)
+                          '-DPS2X_ENABLE_AGRESSIVE_LOGS=OFF',
+                          "-DVCS_LSFG=${lsfg ? 'ON' : 'OFF'}",
+                          "-DVCS_ANDROID_BUNDLE_GAME=${bundleGame ? 'ON' : 'OFF'}",
+                          '-DVCS_ANDROID_GAME_LIBRARY=OFF', // never in the APK: tools/android.py build-game
+                          "-DVCS_GAME=${vcsGame}", // [lcs]
+                          // FFmpeg (the movies): built once there and shared by every build tree (docs/ANDROID.md)
+                          "-DPS2X_FFMPEG_CACHE_DIR=${ffmpegCache}"
+                if (generatedDir)
+                    arguments "-DVCS_GENERATED_DIR=${generatedDir}"
+                // every target: libsmoke.so and libmain.so (the runtime; with -PvcsBundleGame=true, the game too)
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += "${sdlDir}/android-project/app/src/main/java"
+            // [mods] the mod manager's slot tables, shared with the desktop's tools/mods.py: assets/mod_slots.txt
+            assets.srcDirs += "${repoRoot}/tools/modslots"
+            // [phonebuild] "Build code pack on this phone" (docs/PHONE_BUILD.md): the recompiler + VU1 translator for
+            // arm64 and the headers / sysroot / configs, staged by tools/android.py build (no game code)
+            jniLibs.srcDirs += "${repoRoot}/build/android/phonebuild/jniLibs"
+            assets.srcDirs += "${repoRoot}/build/android/phonebuild/assets"
+            if (storiesLibs) // [stories]
+                jniLibs.srcDirs += storiesLibs
+        }
+    }
+
+    // [phonebuild] the native libraries extracted at install: the phone build runs libps2recomp.so / libvu1recomp.so
+    // from nativeLibraryDir (the only place an app may exec() from)
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("${repoRoot}/CMakeLists.txt")
+            version = '3.31.5'
+            buildStagingDirectory = file("${outDir}/cxx")
+        }
+    }
+
+    signingConfigs {
+        if (signMissing.isEmpty()) {
+            release {
+                storeFile = file(signStore)
+                storePassword = signPass
+                keyAlias = signAlias
+                keyPassword = signPass
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // the native code is always optimised as Release: the game is unplayable without, and its flags
+            // (ReleaseMode.cmake: -O2, the CPU, no FP contraction) are Release-only
+            externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=Release' } }
+        }
+        release {
+            minifyEnabled = false
+            // sideloaded only, never on Google Play (docs/ANDROID.md); the user's own key, so updates install over it
+            if (signMissing.isEmpty())
+                signingConfig = signingConfigs.release
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError = false
+    }
+}
+
+layout.buildDirectory = file("${outDir}/gradle")
+
+// A release build without the key stops at its first step, saying what is missing (a debug build never looks)
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach {
+    doFirst {
+        if (!signMissing.isEmpty())
+            throw new GradleException("The release APK is signed with your own key, from the environment; missing:\n  - "
+                    + signMissing.join('\n  - ') + "\nSee docs/ANDROID.md (Release signing). A debug build needs none: "
+                    + "python3 tools/android.py build")
+    }
+}
+
+dependencies {
+    // [phonebuild] .xz for the Termux packages (data.tar.xz) the phone build downloads: XZ for Java, 0BSD
+    implementation 'org.tukaani:xz:1.10'
+}

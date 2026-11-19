@@ -1,0 +1,8 @@
+/* [stories] libstories_<game>.so (game_so.cpp): one export, everything else local - the host libmain.so is in the
+   global group and would otherwise capture every runtime name (docs/ANDROID.md "Both cities on Android") */
+{
+  global:
+    stories_game_main;
+  local:
+    *;
+};

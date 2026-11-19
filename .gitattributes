@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+# [android] README.md is the Android port's; upstream's is kept as docs/UPSTREAM_README.md (CONTRIBUTING.md
+# "How the fork follows upstream" refreshes that copy). Needs `git config merge.ours.driver true` locally.
+README.md merge=ours

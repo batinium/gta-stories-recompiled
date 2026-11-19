@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and help
+    url: https://github.com/batinium/gta-stories-recompiled/discussions
+    about: Setup, "does it run on my phone?", mods and ideas - ask in Discussions, not in an issue.
+  - name: Vice City Stories PC problems (upstream)
+    url: https://github.com/gothamor/gta-vcs-recomp/issues
+    about: A Vice City Stories bug that also happens in gothamor's PC version belongs there. Liberty City Stories, GTA Stories, mods and Android belong here.
