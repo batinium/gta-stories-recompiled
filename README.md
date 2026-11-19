@@ -261,3 +261,5 @@ disc; PC plugins (`.asi` / `.dll`), collision and animations are not supported. 
 Questions and ideas: [Discussions](https://github.com/batinium/gta-stories-recompiled/discussions). Bugs: the
 [issue forms](https://github.com/batinium/gta-stories-recompiled/issues/new/choose). Contributing:
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**Assisted with AI coding agent Claude Opus 5.5**
