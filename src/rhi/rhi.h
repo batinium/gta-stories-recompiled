@@ -303,6 +303,10 @@ namespace rhi
         // thread while the owner draws (D3D11: device creation calls are free-threaded; Vulkan: the image is made there
         // and its first contents staged, then recorded into the set-up commands at the owner's next submit).
         virtual bool freeThreadedCreation() const { return false; }
+        // [android] BlendFactor::Src1Alpha / InvSrc1Alpha may be used (dual-source blending). D3D11 and Metal always have
+        // it; Vulkan when the GPU has dualSrcBlend (Arm Mali does not): without it the GS renderer blends with ordinary
+        // factors and the blend constant (ps2xRuntime gs_blend.h)
+        virtual bool dualSourceBlend() const { return true; }
         // [stories] A texture another device of this process can open (the one-process host: the background game's
         // picture handed to the front game's renderer on the GPU). RGBA8, sampled + render target, with a lock (D3D11: a
         // keyed mutex) taken around each use by either device. `handle` identifies it within the process. Null (and

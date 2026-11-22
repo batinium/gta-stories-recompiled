@@ -71,6 +71,7 @@ namespace vcs_android
         STATE_FREE_CAMERA = 16,
         STATE_GAME = 32,       // the game runs (not the smoke test)
         STATE_PAUSE_MENU = 64, // the game's own pause (or save) menu is up
+        STATE_NEAR_VEHICLE = 128, // on foot, an enterable vehicle in reach: Triangle shows a door
     };
     void noteGameState(int bits);
     // The game's vibration as last asked for (platform::gamepadRumble): low << 16 | high, 0..65535 each, for the phone's

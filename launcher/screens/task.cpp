@@ -37,6 +37,9 @@ namespace screens
                 return "Copied to " + t.result["iso"].str() + ".";
             if (t.kind == "report")
                 return "The report is ready: a zip of the logs, no game files, no saves.";
+            if (t.kind == "android_pack")
+                return "Done in " + duration(elapsed) + ". Your file: libvcs_game.so.gz (" +
+                       std::to_string(std::max(1, int(t.result["size"].num() / (1024 * 1024)))) + " MB), in " + t.result["folder"].str() + ".";
             if (t.kind == "restore")
                 return "Saves restored. The card as it was is in a backup too.";
             return "Done in " + duration(elapsed) + "." + (t.kind == "build" ? " The game is ready." : "");
@@ -186,7 +189,7 @@ namespace screens
                 by += ui::paragraph(kFontBody, px(theme::kBody), {box.x + px(56), by, textW - px(24), 0}, theme::kDim, t.errorMessage) + px(8);
             by += ui::paragraph(kFontBody, px(15), {box.x + px(56), by, textW - px(24), 0}, theme::kText, help.fix);
             Rect actions{box.x + px(48), box.bottom() - px(58), box.w - px(72), px(40)};
-            const bool retry = t.kind == "build" || t.kind == "tools";
+            const bool retry = t.kind == "build" || t.kind == "tools" || t.kind == "android_pack"; // [android]
             auto cut = [&](std::string_view text, char32_t icon, ButtonStyle style) {
                 const float w = ui::buttonWidth(text, icon);
                 const Rect b = core::cutLeft(actions, w);
@@ -212,6 +215,8 @@ namespace screens
                     app.startBuildFor(game.empty() ? app.gameId : game); // [storiesbuild] the game that failed
                 else if (again && kind == "tools")
                     app.startInstallTools();
+                else if (again && kind == "android_pack")
+                    app.startAndroidPack(); // [android]
                 else if (report)
                     app.startReport();
                 return; // the task is gone
@@ -221,11 +226,21 @@ namespace screens
         {
             // done (or stopped): a check that draws itself, what happened, and what's next
             pushReveal(g_finishedAt, 0, 12);
-            const Rect box{col.x, y, col.w, px(116)};
+            const bool pack = t.kind == "android_pack" && !t.cancelled; // [android] what to do with the file, and the warning
+            const Rect box{col.x, y, col.w, pack ? px(236) : px(116)};
             ui::card(box, t.cancelled ? 0 : theme::kDoneFill);
             ui::statusBadge(ui::id("#donebadge"), box.x + px(46), box.cy(), px(20), t.cancelled ? ui::Status::Missing : ui::Status::Good);
             const std::string message = t.cancelled ? "Stopped. Starting again continues where it stopped." : doneMessage(t, elapsed);
-            ui::paragraph(kFontSemibold, px(16), {box.x + px(88), box.y + px(24), box.w - px(300), 0}, theme::kText, message);
+            float textY = box.y + px(24);
+            textY += ui::paragraph(kFontSemibold, px(16), {box.x + px(88), textY, box.w - (pack ? px(110) : px(300)), 0}, theme::kText, message);
+            if (pack) // [android]
+            {
+                textY += px(10);
+                textY += ui::paragraph(kFontBody, px(theme::kBody), {box.x + px(88), textY, box.w - px(110), 0}, theme::kDim,
+                                       "Copy this file to your phone and use Disc > Import game library in the app.") + px(8);
+                ui::paragraph(kFontBody, px(theme::kBody), {box.x + px(88), textY, box.w - px(110), 0}, theme::kAmber,
+                              "It contains your game's code: never share it.");
+            }
             Rect actions{box.x + px(88), box.bottom() - px(52), box.w - px(110), px(38)};
             bool ok = false;
             const bool enter = platform::input.key(platform::kKeyEnter) && !ui::state.focusVisible && ui::inputAllowed();
@@ -258,18 +273,23 @@ namespace screens
             {
                 ok = ui::button("OK##done", core::cutRight(actions, ui::buttonWidth("OK") + px(20)), ButtonStyle::Primary) || enter;
                 core::cutRight(actions, px(8));
+                if (pack && ui::button("Show the folder", core::cutRight(actions, ui::buttonWidth("Show the folder", theme::icon::kFolder)),
+                                       ButtonStyle::Secondary, theme::icon::kFolder))
+                    launcher::openFolder(launcher::pathFrom(t.result["folder"].str())); // [android]
                 if (t.kind == "report" && !t.cancelled &&
                     ui::button("Show the report", core::cutRight(actions, ui::buttonWidth("Show the report", theme::icon::kFolder)),
                                ButtonStyle::Secondary, theme::icon::kFolder))
                     launcher::revealFile(launcher::pathFrom(t.result["path"].str()));
-                if (t.cancelled && (t.kind == "build" || t.kind == "tools"))
+                if (t.cancelled && (t.kind == "build" || t.kind == "tools" || t.kind == "android_pack"))
                 {
                     if (ui::button("Start again", core::cutRight(actions, ui::buttonWidth("Start again", theme::icon::kRefresh)),
                                    ButtonStyle::Secondary, theme::icon::kRefresh))
                     {
                         const std::string kind = t.kind, game = t.game;
                         app.dismissTask();
-                        kind == "build" ? app.startBuildFor(game.empty() ? app.gameId : game) : app.startInstallTools();
+                        kind == "build"          ? app.startBuildFor(game.empty() ? app.gameId : game)
+                        : kind == "android_pack" ? app.startAndroidPack() // [android]
+                                                 : app.startInstallTools();
                         popReveal();
                         return;
                     }

@@ -30,7 +30,7 @@ import java.util.Locale;
 
 final class SavesMenu {
     // request codes, apart from LauncherActivity's (1-4)
-    static final int PICK_IMPORT = 20, CREATE_PSU = 21, CREATE_ZIP = 22;
+    static final int PICK_IMPORT = 20, CREATE_PSU = 21, CREATE_ZIP = 22, CREATE_BACKUP = 23, PICK_RESTORE = 24;
     // the picked file is read whole: a zip of a few saves at most (a full memory card is 8 MB)
     private static final int MAX_PICKED = 64 << 20;
 
@@ -107,8 +107,8 @@ final class SavesMenu {
                 .enabled(() -> !busy && !gameRunning())
                 .action(() -> open(PICK_IMPORT)));
         c.add(new MenuView.Item("Export as .psu…")
-                .value(() -> haveSave() ? "For mymc+ (PCSX2 cards), uLaunchELF, PS2 save tools" : "No save on the card yet")
-                .help(() -> gameRunning() ? QUIT_FIRST : "Your save folder (" + saveDir() + ", every slot) as one "
+                .value(() -> haveSave() ? "For PCSX2 cards and PS2 save tools" : "No save on the card yet")
+                .help(() -> gameRunning() ? QUIT_FIRST : "Works with mymc+, uLaunchELF and other PS2 save tools. Your save folder (" + saveDir() + ", every slot) as one "
                         + ".psu file. Choose where it goes.")
                 .enabled(() -> !busy && !gameRunning() && haveSave())
                 .action(() -> create(CREATE_PSU)));
@@ -118,6 +118,19 @@ final class SavesMenu {
                         + "into its mc0 folder) or to keep. This app imports it back.")
                 .enabled(() -> !busy && !gameRunning() && haveSave())
                 .action(() -> create(CREATE_ZIP)));
+        c.add(new MenuView.Item("Back up all saves…")
+                .value(() -> anySave() ? "Both games, one file. Keep it off the phone" : "No save on the card yet")
+                .help(() -> gameRunning() ? QUIT_FIRST : "Every save of Vice City Stories and Liberty City Stories in one .zip. "
+                        + "Saves live only inside this app: uninstalling it or clearing its data deletes them. "
+                        + "Back up now and then, and keep the file somewhere else (cloud, PC).")
+                .enabled(() -> !busy && !gameRunning() && anySave())
+                .action(() -> createBackup()));
+        c.add(new MenuView.Item("Restore a backup…")
+                .value(() -> "From a backup made here")
+                .help(() -> gameRunning() ? QUIT_FIRST : "Puts the saves of a backup back. Only the save folders in the backup "
+                        + "are replaced; what they replace is copied to files/userdata/backups first.")
+                .enabled(() -> !busy && !gameRunning())
+                .action(() -> open(PICK_RESTORE)));
     }
 
     // ---- state (read in refresh: names only, no file contents) ------------------------------------------------------
@@ -143,6 +156,29 @@ final class SavesMenu {
         return null;
     }
 
+    private File[] dataDirs() {
+        return new File[] {GameFiles.dataDir(activity, DiscCheck.VCS.id), GameFiles.dataDir(activity, DiscCheck.LCS.id)};
+    }
+
+    private boolean anySave() {
+        for (File d : dataDirs())
+            if (SaveBackup.hasSaves(d))
+                return true;
+        return false;
+    }
+
+    private void createBackup() {
+        if (gameRunning()) {
+            setNote("✗ " + QUIT_FIRST);
+            return;
+        }
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("application/zip");
+        i.putExtra(Intent.EXTRA_TITLE, SaveBackup.fileName());
+        activity.startActivityForResult(i, CREATE_BACKUP);
+    }
+
     private boolean haveSave() {
         return gameDir().isDirectory();
     }
@@ -153,7 +189,7 @@ final class SavesMenu {
         List<String> slots = slotsOnCard();
         if (slots == null)
             return "No save on the card yet";
-        return slots.isEmpty() ? "On the card: the game's folder, no saved game in it"
+        return slots.isEmpty() ? "On the card: no saved game yet"
                 : "On the card: " + String.join(", ", slots);
     }
 
@@ -210,12 +246,17 @@ final class SavesMenu {
 
     /** LauncherActivity.onActivityResult: true when the request was ours */
     boolean onResult(int request, int result, Intent data) {
-        if (request != PICK_IMPORT && request != CREATE_PSU && request != CREATE_ZIP)
+        if (request != PICK_IMPORT && request != CREATE_PSU && request != CREATE_ZIP && request != CREATE_BACKUP
+                && request != PICK_RESTORE)
             return false;
         if (result != Activity.RESULT_OK || data == null || data.getData() == null)
             return true;
         if (request == PICK_IMPORT)
             readImport(data.getData());
+        else if (request == CREATE_BACKUP)
+            writeBackup(data.getData());
+        else if (request == PICK_RESTORE)
+            readRestore(data.getData());
         else
             export(data.getData(), request == CREATE_ZIP);
         return true;
@@ -390,6 +431,118 @@ final class SavesMenu {
             final String text = result;
             ui.post(() -> {
                 busy = false;
+                setNote(text);
+            });
+        }).start();
+    }
+
+    // ---- backup and restore of every save (SaveBackup) ---------------------------------------------------------------
+
+    private void writeBackup(Uri uri) {
+        if (gameRunning()) {
+            setNote("✗ " + QUIT_FIRST);
+            return;
+        }
+        String name = displayName(uri);
+        busy = true;
+        setNote("Writing " + name + "…");
+        new Thread(() -> {
+            String result;
+            try {
+                byte[] bytes = SaveBackup.backup(dataDirs());
+                if (bytes == null)
+                    throw new IOException("no save on the card");
+                SaveBackup.inspect(bytes); // what we write must read back
+                OutputStream out;
+                try {
+                    out = activity.getContentResolver().openOutputStream(uri, "wt");
+                } catch (IllegalArgumentException | UnsupportedOperationException e) {
+                    out = activity.getContentResolver().openOutputStream(uri, "w");
+                }
+                if (out == null)
+                    throw new IOException("can't write there");
+                try (OutputStream o = out) {
+                    o.write(bytes);
+                }
+                activity.getSharedPreferences("launcher_ui", 0).edit().putLong("backup_at", System.currentTimeMillis()).apply();
+                result = "✓ Backed up to " + name;
+                Log.i("vcs", "[saves] backup " + bytes.length + " bytes as " + name);
+            } catch (IOException | RuntimeException e) {
+                result = "✗ Backup failed: " + e.getMessage();
+                Log.w("vcs", "[saves] backup to " + name, e);
+            }
+            final String text = result;
+            ui.post(() -> {
+                busy = false;
+                setNote(text);
+            });
+        }).start();
+    }
+
+    private void readRestore(Uri uri) {
+        String name = displayName(uri);
+        busy = true;
+        setNote("Reading " + name + "…");
+        new Thread(() -> {
+            byte[] bytes = null;
+            int[] n = null;
+            String error = null;
+            try (InputStream in = activity.getContentResolver().openInputStream(uri)) {
+                if (in == null)
+                    throw new IOException("no data");
+                bytes = readAll(in);
+                if (bytes == null)
+                    error = name + " is far larger than a save backup.";
+                else
+                    n = SaveBackup.inspect(bytes);
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() != null && e.getMessage().startsWith("This is not") ? e.getMessage()
+                        : "Can't read " + name + " (" + e.getMessage() + ").";
+            }
+            final byte[] b = bytes;
+            final int[] counts = n;
+            final String failure = error;
+            ui.post(() -> {
+                busy = false;
+                if (failure != null) {
+                    setNote("✗ " + failure);
+                    message("Not restored", failure);
+                    return;
+                }
+                setNote(null);
+                Dialogs.fit(new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Restore this backup?")
+                        .setMessage(name + " holds: " + String.join(", ", SaveBackup.describe(counts))
+                                + ".\n\nThose saves replace the ones on the card. What they replace is copied to "
+                                + "files/userdata/backups first.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Restore", (dlg, w) -> restore(b, name))
+                        .show());
+            });
+        }).start();
+    }
+
+    private void restore(byte[] bytes, String name) {
+        if (gameRunning()) {
+            setNote("✗ " + QUIT_FIRST);
+            return;
+        }
+        busy = true;
+        setNote("Restoring " + name + "…");
+        new Thread(() -> {
+            String result;
+            try {
+                int[] n = SaveBackup.restore(bytes, dataDirs());
+                result = "✓ Restored " + String.join(", ", SaveBackup.describe(n));
+                Log.i("vcs", "[saves] restored " + name + ": vcs " + n[0] + " files, lcs " + n[1] + " files");
+            } catch (IOException | RuntimeException e) {
+                result = "✗ Restore failed: " + e.getMessage();
+                Log.w("vcs", "[saves] restore of " + name, e);
+            }
+            final String text = result;
+            ui.post(() -> {
+                busy = false;
+                slotsAt = 0;
                 setNote(text);
             });
         }).start();

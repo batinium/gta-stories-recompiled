@@ -17,4 +17,8 @@ namespace vcs_android
     // its last (timestamps), in ms.
     void noteGpuFrameMs(double ms);
     bool gpuTimingWanted();
+    // [diag] The heartbeat / watchdog (diagnostics.cpp): every host frame since the start, and the longest gap between
+    // two frames since the last call (ns; resets it). Atomics, any thread.
+    uint64_t hostFrameTotal();
+    int64_t takeMaxFrameGapNs();
 }

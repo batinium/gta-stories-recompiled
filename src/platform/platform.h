@@ -171,6 +171,9 @@ namespace platform
     // For the Vulkan renderer (rhi::VulkanWindow), on a window made with WindowDesc::vulkan. Main thread.
     const char *const *vulkanInstanceExtensions(uint32_t *count); // the instance extensions the surface needs
     bool vulkanCreateSurface(void *instance, uint64_t *surface);  // VkInstance -> VkSurfaceKHR
+    // [android] The window's ANativeWindow (SDL's window property), or null (in the background; elsewhere): the Vulkan
+    // backend makes the surface on it itself when a custom GPU driver is loaded (src/android/gpu_driver.h). Main thread.
+    void *androidNativeWindow();
     // [android] Counts the returns to the foreground (SDL_EVENT_DID_ENTER_FOREGROUND, seen by pumpEvents). On Android the
     // window's native surface is destroyed while the activity is in the background, so a Vulkan renderer must make its
     // surface again (rhi::Device::recreateSurface) when this changes. Stays 0 on the desktop. Main thread.

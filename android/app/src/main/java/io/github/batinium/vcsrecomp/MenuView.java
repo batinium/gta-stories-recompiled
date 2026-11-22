@@ -49,6 +49,9 @@ final class MenuView extends View {
 
         /** [lcs] the header's game switch: game index (setGameSwitch's order) picked */
         default void pickGame(int index) {}
+
+        /** The row's full explanation (long press, X on a pad, the row's "i"): its title, its full value and its help */
+        default void showHelp(String title, String text) {}
     }
 
     /** One row. value / help / enabled / visible are read by refresh(), never while drawing. */
@@ -67,6 +70,18 @@ final class MenuView extends View {
         String valueText = "", helpText = "";
         File pictureFile;
         boolean on = true;
+
+        /** What the explanation dialog says: the full value line, then the help text; "" when there is nothing */
+        String explanation() {
+            String v = valueText == null ? "" : valueText.trim(), h = helpText == null ? "" : helpText.trim();
+            if (v.isEmpty())
+                return h;
+            return h.isEmpty() ? v : v + "\n\n" + h;
+        }
+
+        boolean hasInfo() {
+            return !helpText.isEmpty() || valueText.length() > 40;
+        }
 
         Item(String title) {
             this.title = title;
@@ -434,6 +449,9 @@ final class MenuView extends View {
             case KeyEvent.KEYCODE_BUTTON_Y: // [lcs] the game switch
                 ours = gameNames != null;
                 break;
+            case KeyEvent.KEYCODE_BUTTON_X: case KeyEvent.KEYCODE_INFO: // the row's explanation
+                ours = true;
+                break;
             default:
                 ours = false;
         }
@@ -468,6 +486,10 @@ final class MenuView extends View {
             case KeyEvent.KEYCODE_BUTTON_START:
                 if (first) host.play();
                 break;
+            case KeyEvent.KEYCODE_BUTTON_X: case KeyEvent.KEYCODE_INFO:
+                if (first)
+                    explain(focusedItem());
+                break;
             case KeyEvent.KEYCODE_BUTTON_Y:
                 if (first && sub == null) host.pickGame((gameSel + 1) % gameNames.length);
                 break;
@@ -494,14 +516,19 @@ final class MenuView extends View {
                     velocity.recycle();
                 velocity = VelocityTracker.obtain();
                 velocity.addMovement(e);
+                longFired = false;
+                removeCallbacks(longPress);
+                postDelayed(longPress, ViewConfiguration.getLongPressTimeout());
                 invalidate();
                 return true;
             case MotionEvent.ACTION_MOVE: {
                 if (velocity != null)
                     velocity.addMovement(e);
                 float dx = e.getX() - downX, dy = e.getY() - downY;
-                if (dragMode == 0 && Math.hypot(dx, dy) > slop)
+                if (dragMode == 0 && Math.hypot(dx, dy) > slop) {
                     dragMode = Math.abs(dx) > Math.abs(dy) ? 1 : 2;
+                    removeCallbacks(longPress);
+                }
                 if (dragMode == 1) {
                     catPos = clamp(cat - dx / spacing, -0.4f, cats.size() - 0.6f);
                     invalidate();
@@ -513,6 +540,7 @@ final class MenuView extends View {
                 return true;
             }
             case MotionEvent.ACTION_UP: {
+                removeCallbacks(longPress);
                 float vx = 0, vy = 0;
                 if (velocity != null) {
                     velocity.addMovement(e);
@@ -524,7 +552,8 @@ final class MenuView extends View {
                 }
                 float dx = e.getX() - downX;
                 if (dragMode == 0) {
-                    tap(e.getX(), e.getY());
+                    if (!longFired)
+                        tap(e.getX(), e.getY());
                 } else if (dragMode == 1) {
                     int to = Math.round(cat - dx / spacing);
                     if (to == cat && Math.abs(vx) > 900 * getResources().getDisplayMetrics().density / 2.75f)
@@ -538,6 +567,7 @@ final class MenuView extends View {
                 return true;
             }
             case MotionEvent.ACTION_CANCEL:
+                removeCallbacks(longPress);
                 if (dragMode == 1)
                     setCategory(cat);
                 dragMode = 0;
@@ -545,6 +575,45 @@ final class MenuView extends View {
                 return true;
         }
         return super.onTouchEvent(e);
+    }
+
+    // long press on a row: its full explanation (the touch twin of X on a pad)
+    private boolean longFired;
+    private final Runnable longPress = () -> {
+        if (dragMode != 0 || cats.isEmpty())
+            return;
+        Item it = itemAt(downX, downY);
+        if (it == null)
+            return;
+        longFired = true;
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        explain(it);
+    };
+
+    /** The row under a point (a top-level row, not an option), or null */
+    private Item itemAt(float x, float y) {
+        if (sub != null || y < listTop - T * 0.2f || y > listBottom || x < colX - icon || x > textRight + T)
+            return null;
+        int row = (int) Math.floor((y - listTop) / rowH + scroll);
+        List<Item> shown = cats.get(cat).shown;
+        return row >= 0 && row < shown.size() ? shown.get(row) : null;
+    }
+
+    private Item focusedItem() {
+        if (cats.isEmpty())
+            return null;
+        if (sub != null)
+            return sub;
+        Category cg = cats.get(cat);
+        return cg.sel < cg.shown.size() ? cg.shown.get(cg.sel) : null;
+    }
+
+    private void explain(Item it) {
+        if (it == null)
+            return;
+        String text = it.explanation();
+        if (!text.isEmpty())
+            host.showHelp(it.title, text);
     }
 
     private void tap(float x, float y) {
@@ -573,6 +642,10 @@ final class MenuView extends View {
         int row = (int) Math.floor((y - rowsTop) / rowH + scroll);
         if (row < 0 || row >= rowCount())
             return;
+        if (sub == null && row == cats.get(cat).sel && x > textRight - T * 1.8f && cats.get(cat).shown.get(row).hasInfo()) {
+            explain(cats.get(cat).shown.get(row)); // the selected row's "i"
+            return;
+        }
         if (sub != null)
             subSel = row;
         else
@@ -875,24 +948,47 @@ final class MenuView extends View {
             stroke.setColor(col(0.6f * a, Palette.INK));
             c.drawCircle(colX, my, T * 0.16f, stroke);
         }
-        float avail = textRight - textX;
+        boolean info = selected && it.hasInfo();
+        float avail = textRight - textX - (info ? T * 1.6f : 0);
         boolean big = it.primary;
         title.setTextSize(big ? T * 1.15f : T);
         title.setTypeface(Typeface.create(big ? "sans-serif-medium" : "sans-serif", Typeface.NORMAL));
         title.setColor(col(a, big && it.on ? Palette.PINK : Palette.INK));
         String t = TextUtils.ellipsize(it.title, title, avail, TextUtils.TruncateAt.END).toString();
         boolean twoLines = !it.valueText.isEmpty();
-        float ty = twoLines ? y + rowH * 0.47f : y + rowH * 0.5f + T * 0.36f;
+        // the selected row's value wraps onto a second line instead of ending in "..."
+        String v = it.valueText, v2 = null;
+        if (twoLines && selected && small.measureText(v) > avail) {
+            int n = small.breakText(v, true, avail, null);
+            int sp = v.lastIndexOf(' ', n);
+            if (sp > 0 && n < v.length())
+                n = sp;
+            v2 = v.substring(n).trim();
+            v = v.substring(0, n).trim();
+        }
+        float ty = v2 != null ? y + rowH * 0.33f + T * 0.3f : twoLines ? y + rowH * 0.47f : y + rowH * 0.5f + T * 0.36f;
         c.drawText(t, textX, ty, title);
         title.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
         title.setTextSize(T);
         if (twoLines) {
-            String v = it.valueText;
             int tone = v.startsWith("✓") ? Palette.TEAL : v.startsWith("✗") ? Palette.BAD : 0;
             small.setColor(col(a * (tone != 0 ? 1f : 0.7f), tone != 0 ? tone : Palette.INK));
             if (tone == 0 && it.choices != null)
                 small.setColor(col(a * 0.95f, Palette.TEAL));
-            c.drawText(TextUtils.ellipsize(v, small, avail, TextUtils.TruncateAt.END).toString(), textX, y + rowH * 0.47f + T * 0.98f, small);
+            float vy = v2 != null ? y + rowH * 0.65f : y + rowH * 0.47f + T * 0.98f;
+            c.drawText(TextUtils.ellipsize(v, small, avail, TextUtils.TruncateAt.END).toString(), textX, vy, small);
+            if (v2 != null)
+                c.drawText(TextUtils.ellipsize(v2, small, avail, TextUtils.TruncateAt.END).toString(), textX, vy + T * 0.9f, small);
+        }
+        if (info) { // a small "i": tap it, or long-press the row, or X on a pad
+            float ix = textRight - T * 0.7f, r = T * 0.42f;
+            stroke.setStrokeWidth(Math.max(1.5f, T * 0.05f));
+            stroke.setColor(col(0.75f * a, Palette.TEAL));
+            c.drawCircle(ix, my, r, stroke);
+            small.setColor(col(0.9f * a, Palette.TEAL));
+            small.setTextAlign(Paint.Align.CENTER);
+            c.drawText("i", ix, my + T * 0.26f, small);
+            small.setTextAlign(Paint.Align.LEFT);
         }
         c.restore();
     }
@@ -998,6 +1094,7 @@ final class MenuView extends View {
         if (gamepad) {
             x = hint(c, x, y, "A", sub != null ? "Choose" : "Select");
             x = hint(c, x, y, "B", "Back");
+            x = hint(c, x, y, "X", "Info");
             x = hint(c, x, y, "L1 R1", "Category");
             x = hint(c, x, y, "≡", "Play");
             if (gameNames != null)

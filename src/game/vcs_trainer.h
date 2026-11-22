@@ -58,6 +58,7 @@ namespace vcs::trainer
     void setToggle(Toggle t, bool on);
     bool ready();                       // in game: the script engine runs and the player exists
     bool inVehicle();                   // the player drives a vehicle (as of the last frame kick)
+    bool nearVehicle();                 // [android] on foot with an enterable vehicle in reach (touch overlay's door icon)
     void heal();                        // full health and armour
     void addMoney(int amount);
     void setWanted(int stars);          // 0 clears it

@@ -1,0 +1,7 @@
+# Phones this build has been run on. One rule per line: a substring of the GPU name the game's log reports
+# ("[rhi] gpu: <name>, vendor ..."), case-insensitive; "# comment" after the rule or on its own line.
+# A phone that matches no rule gets a one-time "this phone has not been tested" notice (docs/ANDROID_LAUNCHER.md).
+# Before the game has run once, the GPU name is not known: rules are then matched against "<SoC maker> <SoC model>".
+Adreno (TM) 840   # Honor PNM-N49 (the dev phone), Android 16, Vulkan 1.4
+# Adreno 8 Elite Gen 5 class GPUs, as the driver names them (add the exact name once a log shows it):
+# Adreno (TM) 830

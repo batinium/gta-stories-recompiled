@@ -17,6 +17,7 @@
 // - New render targets and depth textures start cleared to zero (D3D drivers hand them out that way).
 // - Objects freed while the GPU may still use them are destroyed when their frame's fence has passed.
 #include "rhi/rhi.h"
+#include "rhi/vulkan/draw_ring.h" // [android] the last draws, dumped on device loss
 
 #if defined(__ANDROID__)
 #include "android/stats.h" // [android] the stats overlay's GPU time a frame (GpuTimer, frameBegin / collectTimes)
@@ -60,10 +61,62 @@
 #include <ctime>
 #endif
 
+#if defined(VCS_GPU_DRIVERS) // [android] custom GPU drivers (src/android/gpu_driver.h, docs/ANDROID.md)
+#include "android/gpu_driver.h"
+#include "platform/platform.h" // platform::androidNativeWindow
+#include <vulkan/vulkan_android.h>
+#endif
+
 namespace rhi
 {
     namespace
     {
+        // [android] The Vulkan loader: volk's own (libvulkan.so / vulkan-1.dll), or with a custom GPU driver selected
+        // (gpu_driver.h) the vkGetInstanceProcAddr of the libvulkan.so copy adrenotools opened for it. A driver that
+        // does not load leaves the system's (the log's "[gpu-driver] failed" says why; the launcher goes back to it).
+        VkResult initLoader()
+        {
+#if defined(VCS_GPU_DRIVERS)
+            if (gpudriver::selected())
+                if (void *proc = gpudriver::load())
+                {
+                    volkInitializeCustom(reinterpret_cast<PFN_vkGetInstanceProcAddr>(proc));
+                    return VK_SUCCESS;
+                }
+#endif
+            return volkInitialize();
+        }
+
+        // [android] The window's surface: the platform layer's (SDL_Vulkan_CreateSurface) as always; with a custom driver
+        // selected, made here through the loaded loader (SDL's own loader copy cannot take this instance)
+        bool makeSurface(bool (*platformMake)(void *, uint64_t *), VkInstance instance, uint64_t *surface)
+        {
+#if defined(VCS_GPU_DRIVERS)
+            if (gpudriver::selected())
+            {
+                auto create = reinterpret_cast<PFN_vkCreateAndroidSurfaceKHR>(vkGetInstanceProcAddr(instance, "vkCreateAndroidSurfaceKHR"));
+                void *window = platform::androidNativeWindow();
+                if (!create || !window)
+                {
+                    std::fprintf(stderr, "[gpu-driver] no surface: %s\n", !create ? "no vkCreateAndroidSurfaceKHR" : "no native window");
+                    return false;
+                }
+                VkAndroidSurfaceCreateInfoKHR ci{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
+                ci.window = static_cast<ANativeWindow *>(window);
+                VkSurfaceKHR made = VK_NULL_HANDLE;
+                const VkResult r = create(instance, &ci, nullptr, &made);
+                if (r != VK_SUCCESS)
+                {
+                    std::fprintf(stderr, "[gpu-driver] vkCreateAndroidSurfaceKHR: %d\n", static_cast<int>(r));
+                    return false;
+                }
+                *surface = reinterpret_cast<uint64_t>(made);
+                return true;
+            }
+#endif
+            return platformMake && platformMake(instance, surface);
+        }
+
         constexpr uint32_t kFrames = 2;          // frames in flight
         constexpr uint32_t kUniformSlots = 4;    // cbuffer b0..b3
         constexpr uint32_t kTextureSlots = 8;    // t0..t7 / s0..s7 (beginPass unbinds 8, as rhi_d3d11.cpp)
@@ -176,6 +229,12 @@ namespace rhi
             case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
             case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
             case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+            case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
+            case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+            case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+            case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+            case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV";
+            case VK_PIPELINE_COMPILE_REQUIRED: return "VK_PIPELINE_COMPILE_REQUIRED";
             default: return "VkResult";
             }
         }
@@ -531,7 +590,7 @@ namespace rhi
 
             bool create(const DeviceDesc &desc, std::string &error)
             {
-                if (volkInitialize() != VK_SUCCESS)
+                if (initLoader() != VK_SUCCESS)
                 {
                     error = "no Vulkan loader (libvulkan.so.1 / vulkan-1.dll): install the GPU's Vulkan driver";
                     return false;
@@ -561,6 +620,14 @@ namespace rhi
                     error = "off-screen back buffer";
                     return false;
                 }
+#if defined(VCS_GPU_DRIVERS) // [android] the launcher's sign that the custom driver works (GpuDriver.java checkLastRun)
+                if (gpudriver::selected() && gpudriver::load())
+                {
+                    std::fprintf(stderr, "[gpu-driver] confirmed: device created with the custom driver '%s': %s\n",
+                                 gpudriver::activeName(), m_adapterName.c_str());
+                    std::fflush(stderr);
+                }
+#endif
                 return true;
             }
 
@@ -708,6 +775,7 @@ namespace rhi
             }
 
             bool freeThreadedCreation() const override { return true; } // off the owner thread: stage() (PERFORMANCE.md 25)
+            bool dualSourceBlend() const override { return m_dualSrcBlend; } // [android] Mali has none
 
             std::unique_ptr<Texture> createTexture(const TextureDesc &desc, const void *data, uint32_t rowPitch) override
             {
@@ -1045,6 +1113,15 @@ namespace rhi
                 setScissor(0, 0, static_cast<int>(w), static_cast<int>(h));
                 if (!m_passName.empty())
                     pushMarker(m_passName.c_str());
+                {
+                    DrawRing::Event e; // [android]
+                    e.kind = DrawRing::PassBegin;
+                    e.frame = static_cast<uint32_t>(m_frameSerial);
+                    e.width = w;
+                    e.height = h;
+                    DrawRing::copyName(e.marker, m_passName.c_str());
+                    m_ring.record(e);
+                }
                 m_passMarker = !m_passName.empty();
             }
 
@@ -1118,6 +1195,7 @@ namespace rhi
                 if (!vertexCount || !prepareDraw(false))
                     return;
                 const int64_t t1 = spikeClock();
+                recordDraw(DrawRing::Draw, vertexCount, firstVertex, 0);
                 vkCmdDraw(m_cmd, vertexCount, 1, firstVertex, 0);
                 ++m_stats.draws;
                 if (t0)
@@ -1132,12 +1210,24 @@ namespace rhi
             {
                 if (!indexCount || !prepareDraw(true))
                     return;
+                recordDraw(DrawRing::DrawIndexed, indexCount, firstIndex, baseVertex);
                 vkCmdDrawIndexed(m_cmd, indexCount, 1, firstIndex, baseVertex, 0);
                 ++m_stats.draws;
             }
 
             void pushMarker(const char *name) override
             {
+                {
+                    // [android] the ring's marker stack (cheap: two short copies)
+                    m_ring.pushName(name);
+                    DrawRing::Event e;
+                    e.kind = DrawRing::Push;
+                    e.frame = static_cast<uint32_t>(m_frameSerial);
+                    e.width = m_passWidth;
+                    e.height = m_passHeight;
+                    DrawRing::copyName(e.marker, name);
+                    m_ring.record(e);
+                }
                 if (m_debugUtils && name)
                 {
                     VkDebugUtilsLabelEXT label{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
@@ -1151,6 +1241,7 @@ namespace rhi
 
             void popMarker() override
             {
+                m_ring.popName();
                 if (m_debugUtils && m_markerDepth > 0)
                 {
                     vkCmdEndDebugUtilsLabelEXT(m_cmd);
@@ -1191,7 +1282,7 @@ namespace rhi
                 if (recording)
                     beginCommands();
                 uint64_t surface = 0;
-                if (!m_createSurface(m_core->instance, &surface))
+                if (!makeSurface(m_createSurface, m_core->instance, &surface))
                 {
                     std::fprintf(stderr, "[rhi] Vulkan: no surface for the window again\n");
                     return false;
@@ -1373,7 +1464,7 @@ namespace rhi
                 if (!m_offscreen)
                 {
                     uint64_t surface = 0;
-                    if (!desc.vulkan.createSurface(m_core->instance, &surface))
+                    if (!makeSurface(desc.vulkan.createSurface, m_core->instance, &surface))
                     {
                         error = "no Vulkan surface for the window";
                         return false;
@@ -1407,6 +1498,8 @@ namespace rhi
                     vkGetPhysicalDeviceProperties(devices[i], &props);
                     uint32_t family = 0;
                     std::string missing;
+                    if (!std::getenv("VCS_CAPS_LOG_OFF"))
+                    logDeviceCaps(devices[i], props); // [android] for every device, usable or not: what we need to extend support
                     const bool ok = usable(devices[i], props, family, missing);
                     if (!ids[i])
                         others += (others.empty() ? "" : ", ") + std::string(props.deviceName) +
@@ -1477,14 +1570,115 @@ namespace rhi
                 vkGetPhysicalDeviceProperties2(m_core->physical, &p2);
                 if (driver.driverName[0])
                     m_adapterName += std::string(" (") + driver.driverName + " " + driver.driverInfo + ")";
+                logDeviceFacts(props, driver);
                 return true;
+            }
+
+            // [android] "[caps]" lines: everything needed to judge whether a GPU/driver could be supported, printed for
+            // every Vulkan device even when it is rejected (a rejected phone is exactly the one we need data from)
+            static void logDeviceCaps(VkPhysicalDevice device, const VkPhysicalDeviceProperties &props)
+            {
+                VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+                VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+                VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                if (props.apiVersion >= VK_API_VERSION_1_2)
+                    f2.pNext = &f12;
+                if (props.apiVersion >= VK_API_VERSION_1_3)
+                    f12.pNext = &f13;
+                vkGetPhysicalDeviceFeatures2(device, &f2);
+                const VkPhysicalDeviceLimits &l = props.limits;
+                std::fprintf(stderr,
+                             "[caps] device '%s' vendor 0x%04x id 0x%04x type %d api %u.%u.%u driverVersion 0x%08x\n"
+                             "[caps]   features: dualSrcBlend %d depthClamp %d shaderClipDistance %d samplerAnisotropy %d "
+                             "independentBlend %d logicOp %d fillModeNonSolid %d wideLines %d shaderInt16 %d shaderFloat64 %d\n"
+                             "[caps]   vk1.2: timelineSemaphore %d descriptorIndexing %d bufferDeviceAddress %d "
+                             "shaderFloat16 %d shaderInt8 %d storageBuffer8Bit %d; vk1.3: dynamicRendering %d synchronization2 %d "
+                             "demoteToHelper %d maintenance4 %d\n"
+                             "[caps]   limits: maxImage2D %u maxColorAttach %u maxBoundDescSets %u maxPushConst %u "
+                             "maxUniformBuf %u maxStorageBuf %u maxPerStageSamplers %u maxFramebuf %ux%u maxAniso %.0f "
+                             "maxComputeShared %u timestampPeriod %.2f\n",
+                             props.deviceName, props.vendorID, props.deviceID, static_cast<int>(props.deviceType),
+                             VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion),
+                             VK_API_VERSION_PATCH(props.apiVersion), props.driverVersion, f2.features.dualSrcBlend,
+                             f2.features.depthClamp, f2.features.shaderClipDistance, f2.features.samplerAnisotropy,
+                             f2.features.independentBlend, f2.features.logicOp, f2.features.fillModeNonSolid,
+                             f2.features.wideLines, f2.features.shaderInt16, f2.features.shaderFloat64,
+                             f12.timelineSemaphore, f12.descriptorIndexing, f12.bufferDeviceAddress, f12.shaderFloat16,
+                             f12.shaderInt8, f12.storageBuffer8BitAccess, f13.dynamicRendering, f13.synchronization2,
+                             f13.shaderDemoteToHelperInvocation, f13.maintenance4, l.maxImageDimension2D,
+                             l.maxColorAttachments, l.maxBoundDescriptorSets, l.maxPushConstantsSize,
+                             l.maxUniformBufferRange, l.maxStorageBufferRange, l.maxPerStageDescriptorSamplers,
+                             l.maxFramebufferWidth, l.maxFramebufferHeight, static_cast<double>(l.maxSamplerAnisotropy),
+                             l.maxComputeSharedMemorySize, static_cast<double>(l.timestampPeriod));
+                VkPhysicalDeviceMemoryProperties mem{};
+                vkGetPhysicalDeviceMemoryProperties(device, &mem);
+                std::string heaps;
+                for (uint32_t h = 0; h < mem.memoryHeapCount; ++h)
+                    heaps += (heaps.empty() ? "" : ", ") + std::to_string(mem.memoryHeaps[h].size >> 20) + " MB" +
+                             ((mem.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? " local" : "");
+                std::fprintf(stderr, "[caps]   memory heaps: %s\n", heaps.c_str());
+                uint32_t n = 0;
+                vkEnumerateDeviceExtensionProperties(device, nullptr, &n, nullptr);
+                std::vector<VkExtensionProperties> exts(n);
+                vkEnumerateDeviceExtensionProperties(device, nullptr, &n, exts.data());
+                std::string list;
+                for (const VkExtensionProperties &e : exts)
+                    list += (list.empty() ? "" : " ") + std::string(e.extensionName);
+                std::fprintf(stderr, "[caps]   %u extensions: %s\n", n, list.c_str());
+            }
+
+            // [android] one block for the log (and so the crash report): what the GPU is and what it offers
+            void logDeviceFacts(const VkPhysicalDeviceProperties &props, const VkPhysicalDeviceDriverProperties &driver)
+            {
+                VkPhysicalDevice device = m_core->physical;
+                VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+                VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                f2.pNext = &f13;
+                vkGetPhysicalDeviceFeatures2(device, &f2);
+                uint32_t count = 0;
+                vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
+                std::vector<VkExtensionProperties> exts(count);
+                vkEnumerateDeviceExtensionProperties(device, nullptr, &count, exts.data());
+                auto has = [&](const char *name) {
+                    return std::any_of(exts.begin(), exts.end(), [&](const VkExtensionProperties &e) { return std::strcmp(e.extensionName, name) == 0; });
+                };
+                auto yn = [](bool b) { return b ? "yes" : "NO"; };
+                std::fprintf(stderr,
+                             "[rhi] gpu: %s, vendor 0x%04x device 0x%04x, type %d\n"
+                             "[rhi] gpu: driver '%s' info '%s' (id %d, conformance %u.%u.%u.%u), driverVersion 0x%08x\n"
+                             "[rhi] gpu: Vulkan apiVersion %u.%u.%u\n"
+                             "[rhi] gpu: features: dynamicRendering %s, synchronization2 %s, demoteToHelperInvocation %s, "
+                             "dualSrcBlend %s, depthClamp %s, shaderClipDistance %s, samplerAnisotropy %s\n"
+                             "[rhi] gpu: extensions: push_descriptor %s, swapchain %s, debug_utils %s, calibrated_timestamps %s; "
+                             "maxImage2D %u, timestampPeriod %.2f ns\n",
+                             props.deviceName, props.vendorID, props.deviceID, static_cast<int>(props.deviceType),
+                             driver.driverName, driver.driverInfo, static_cast<int>(driver.driverID),
+                             static_cast<unsigned>(driver.conformanceVersion.major), static_cast<unsigned>(driver.conformanceVersion.minor),
+                             static_cast<unsigned>(driver.conformanceVersion.subminor), static_cast<unsigned>(driver.conformanceVersion.patch),
+                             props.driverVersion, VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion),
+                             VK_API_VERSION_PATCH(props.apiVersion), yn(f13.dynamicRendering), yn(f13.synchronization2),
+                             yn(f13.shaderDemoteToHelperInvocation), yn(f2.features.dualSrcBlend), yn(f2.features.depthClamp),
+                             yn(f2.features.shaderClipDistance), yn(f2.features.samplerAnisotropy),
+                             yn(has(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)), yn(has(VK_KHR_SWAPCHAIN_EXTENSION_NAME)), yn(m_debugUtils),
+                             yn(has(VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)), props.limits.maxImageDimension2D,
+                             static_cast<double>(props.limits.timestampPeriod));
+#if defined(VCS_GPU_DRIVERS) // [android] which driver package this is (GpuDriver.java; the crash report has it too)
+                if (gpudriver::selected())
+                    std::fprintf(stderr, "[rhi] gpu: loader: %s%s%s\n", gpudriver::load() ? "custom driver '" : "system driver",
+                                 gpudriver::load() ? gpudriver::activeName() : " (the selected custom driver did not load)",
+                                 gpudriver::load() ? "' (adrenotools)" : "");
+                else
+                    std::fprintf(stderr, "[rhi] gpu: loader: system driver\n");
+#endif
             }
 
             bool usable(VkPhysicalDevice device, const VkPhysicalDeviceProperties &props, uint32_t &family, std::string &missing)
             {
                 if (props.apiVersion < VK_API_VERSION_1_3)
                 {
-                    missing = "Vulkan 1.3";
+                    // [android] the launcher's start-up error dialog (GpuLog.java) parses "Vulkan 1.3 - this driver has X.Y"
+                    missing = "Vulkan 1.3 - this driver has " + std::to_string(VK_API_VERSION_MAJOR(props.apiVersion)) + "." +
+                              std::to_string(VK_API_VERSION_MINOR(props.apiVersion));
                     return false;
                 }
                 uint32_t count = 0;
@@ -1508,10 +1702,17 @@ namespace rhi
                 VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
                 f2.pNext = &f13;
                 vkGetPhysicalDeviceFeatures2(device, &f2);
-                if (!f13.dynamicRendering || !f13.synchronization2 || !f13.shaderDemoteToHelperInvocation || !f2.features.dualSrcBlend ||
+                // [android] dual-source blend is optional (Arm Mali lacks it): the GS renderer then blends single-source
+                if (!f13.dynamicRendering || !f13.synchronization2 || !f13.shaderDemoteToHelperInvocation ||
                     !f2.features.depthClamp || !f2.features.shaderClipDistance)
                 {
-                    missing = "a required feature (dynamic rendering, synchronization2, demote, dual-source blend, depth clamp, clip distance)";
+                    // [android] name the features the card lacks (Mali has no dual-source blend), not the whole list
+                    missing = "a required feature, lacking:";
+                    if (!f13.dynamicRendering) missing += " dynamic rendering;";
+                    if (!f13.synchronization2) missing += " synchronization2;";
+                    if (!f13.shaderDemoteToHelperInvocation) missing += " demote;";
+                    if (!f2.features.depthClamp) missing += " depth clamp;";
+                    if (!f2.features.shaderClipDistance) missing += " clip distance;";
                     return false;
                 }
                 vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
@@ -1557,7 +1758,10 @@ namespace rhi
                 f13.shaderDemoteToHelperInvocation = VK_TRUE;
                 VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
                 f2.pNext = &f13;
-                f2.features.dualSrcBlend = VK_TRUE;
+                f2.features.dualSrcBlend = supported.dualSrcBlend; // [android] only when present (Mali: not)
+                m_dualSrcBlend = supported.dualSrcBlend == VK_TRUE;
+                std::fprintf(stderr, "[rhi] Vulkan: dual-source blend %s\n",
+                             m_dualSrcBlend ? "present" : "absent: the GS renderer blends single-source (ps2xRuntime gs_blend.h)");
                 f2.features.depthClamp = VK_TRUE;
                 f2.features.shaderClipDistance = VK_TRUE;
                 f2.features.samplerAnisotropy = supported.samplerAnisotropy;
@@ -2591,8 +2795,30 @@ namespace rhi
                 const VkResult r = vkCreateGraphicsPipelines(m_core->device, m_pipelineCache, 1, &ci, nullptr, &made);
                 if (r != VK_SUCCESS)
                 {
-                    std::fprintf(stderr, "[rhi] pipeline '%s' failed (%s)\n", p.name.c_str(), vkResultName(r));
+                    // [android] the code and the state: a driver that refuses a pipeline leaves a black picture (the release
+                    // build on the stock Adreno driver, 2026-11-22), and "VkResult" alone does not say which
+                    std::fprintf(stderr,
+                                 "[rhi] pipeline '%s' failed (%s, %d): topology %d blend %d src %d/%d op %d/%d dst %d/%d mask 0x%x "
+                                 "depth test %d write %d func %d clip %d scissor %d color fmt %d depth fmt %d samples %d ps %zu B vs %zu B attrs %zu stride %u (pipeline #%llu, %zu shader modules)\n",
+                                 p.name.c_str(), vkResultName(r), static_cast<int>(r), static_cast<int>(d.topology),
+                                 static_cast<int>(d.blend.enable), static_cast<int>(d.blend.srcColor), static_cast<int>(d.blend.srcAlpha),
+                                 static_cast<int>(d.blend.colorOp), static_cast<int>(d.blend.alphaOp), static_cast<int>(d.blend.dstColor),
+                                 static_cast<int>(d.blend.dstAlpha), static_cast<unsigned>(d.blend.writeMask), static_cast<int>(d.depth.test),
+                                 static_cast<int>(d.depth.write), static_cast<int>(d.depth.func), static_cast<int>(d.depthClip),
+                                 static_cast<int>(d.scissor), static_cast<int>(color), static_cast<int>(depth), static_cast<int>(samples),
+                                 d.pixel.size, d.vertex.size, d.attributes.size(), static_cast<unsigned>(d.stride),
+                                 static_cast<unsigned long long>(m_stats.pipelines), m_modules.size());
                     made = VK_NULL_HANDLE;
+                }
+                if (r == VK_SUCCESS)
+                {
+                    // [android] VCS_PIPE_LOG=1: every pipeline that was made, to compare with the refused ones
+                    static const bool log = std::getenv("VCS_PIPE_LOG") != nullptr;
+                    if (log)
+                        std::fprintf(stderr, "[rhi] pipeline '%s' ok: ps %zu B vs %zu B attrs %zu stride %u topo %d blend %d (#%llu)\n", p.name.c_str(),
+                                     d.pixel.size, d.vertex.size, d.attributes.size(), static_cast<unsigned>(d.stride),
+                                     static_cast<int>(d.topology), static_cast<int>(d.blend.enable),
+                                     static_cast<unsigned long long>(m_stats.pipelines));
                 }
                 p.variants[key] = made;
                 if (!shared.empty() && made)
@@ -2864,6 +3090,70 @@ namespace rhi
                     return;
                 m_lostReported = true;
                 std::fprintf(stderr, "[rhi] %s: %s%s\n", what, vkResultName(r), r == VK_ERROR_DEVICE_LOST ? " (graphics device lost)" : "");
+                // [android] which draw it was: the ring's last events (stderr: logcat and files/logs/game.log, so the crash report has them)
+                std::fprintf(stderr, "[rhi] gpu: %s, frame %llu, marker stack top '%s'\n", m_adapterName.c_str(),
+                             static_cast<unsigned long long>(m_frameSerial), m_ring.top());
+                m_ring.dump([](const char *line) { std::fprintf(stderr, "%s\n", line); });
+                std::fflush(stderr);
+#ifdef __ANDROID__ // [android] the launcher turns compatibility mode on at its next start (CompatMode.java)
+                if (r == VK_ERROR_DEVICE_LOST)
+                    if (const char *app = std::getenv("VCS_APP_DIR"); app && *app)
+                        if (std::FILE *mk = std::fopen((std::string(app) + "/gpu_lost.marker").c_str(), "w"))
+                            std::fclose(mk);
+#endif
+            }
+
+            // [android] one draw into the ring: always on, plain stores (no allocation, no formatting)
+            void recordDraw(DrawRing::Kind kind, uint32_t count, uint32_t first, int32_t base)
+            {
+                DrawRing::Event e;
+                e.kind = kind;
+                e.count = count;
+                e.first = first;
+                e.base = base;
+                e.frame = static_cast<uint32_t>(m_frameSerial);
+                e.width = m_passWidth;
+                e.height = m_passHeight;
+                if (m_pipeline)
+                {
+                    const PipelineDesc &d = m_pipeline->desc;
+                    e.topology = static_cast<uint8_t>(d.topology);
+                    e.blendOn = d.blend.enable;
+                    e.writeMask = d.blend.writeMask;
+                    e.srcColor = static_cast<uint8_t>(d.blend.srcColor);
+                    e.dstColor = static_cast<uint8_t>(d.blend.dstColor);
+                    e.colorOp = static_cast<uint8_t>(d.blend.colorOp);
+                    e.srcAlpha = static_cast<uint8_t>(d.blend.srcAlpha);
+                    e.dstAlpha = static_cast<uint8_t>(d.blend.dstAlpha);
+                    e.alphaOp = static_cast<uint8_t>(d.blend.alphaOp);
+                    e.depthTest = d.depth.test;
+                    e.depthWrite = d.depth.write;
+                    e.depthFunc = static_cast<uint8_t>(d.depth.func);
+                    e.stride = static_cast<uint16_t>(d.stride);
+                    e.attrs = static_cast<uint16_t>(d.attributes.size());
+                    DrawRing::copyName(e.pipeline, m_pipeline->name.c_str());
+                }
+                if (m_passColor)
+                {
+                    e.colorFormat = static_cast<uint32_t>(m_passColor->format);
+                    e.samples = static_cast<uint8_t>(m_passColor->samples);
+                }
+                else if (m_passToBackbuffer)
+                    e.colorFormat = static_cast<uint32_t>(m_swapFormat);
+                if (m_passDepth)
+                    e.depthFormat = static_cast<uint32_t>(m_passDepth->format);
+                for (uint32_t i = 0; i < kTextureSlots && i < 8; ++i)
+                    if (m_textures[i])
+                        e.texMask |= static_cast<uint8_t>(1u << i);
+                if (m_vertexBuffer)
+                {
+                    e.vtxOffset = m_vertexOffset;
+                    e.vtxSize = static_cast<uint32_t>(m_vertexBuffer->desc().size);
+                }
+                if (kind == DrawRing::DrawIndexed && m_indexBuffer)
+                    e.idxSize = static_cast<uint32_t>(m_indexBuffer->desc().size);
+                DrawRing::copyName(e.marker, m_ring.top());
+                m_ring.record(e);
             }
 
             static double msSince(std::chrono::steady_clock::time_point t0)
@@ -3089,6 +3379,7 @@ namespace rhi
             VkSurfaceTransformFlagBitsKHR m_swapTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR; // [android] its surface's turn then
             uint32_t m_surfaceCheck = 0; // [android] frames since the surface's size was looked at (acquire)
             bool m_calibration = false; // VK_KHR_calibrated_timestamps on (noteInputDelay)
+            bool m_dualSrcBlend = false; // [android] dualSrcBlend enabled (the GPU has it; optional since 2026-11-21)
 #include "rhi/vulkan/framegen_present.inl" // [android] LSFG frame generation's members (VCS_LSFG; empty without)
 
             bool deviceHas(const char *name)
@@ -3193,6 +3484,7 @@ namespace rhi
             std::unique_ptr<VkBuf> m_zeroBuffer;
 
             bool m_lostReported = false;
+            DrawRing m_ring; // [android] the last draws / markers (reportLost dumps it)
             struct Stats
             {
                 uint64_t frames = 0, draws = 0, passes = 0, suspends = 0, barriers = 0, waits = 0, uploaded = 0, pipelines = 0;
@@ -3221,7 +3513,7 @@ namespace rhi
     std::vector<Gpu> listVulkanGpus()
     {
         // an instance of its own, only to list the cards (before the settings load, so before the device exists)
-        if (volkInitialize() != VK_SUCCESS || volkGetInstanceVersion() < VK_API_VERSION_1_3)
+        if (initLoader() != VK_SUCCESS || volkGetInstanceVersion() < VK_API_VERSION_1_3)
             return {};
         VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
         app.pApplicationName = "Vice City Stories";

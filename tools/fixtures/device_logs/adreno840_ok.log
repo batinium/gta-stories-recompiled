@@ -1,0 +1,8 @@
+# expect: tested=yes failure=none lost=0 refused=0 problem=none
+[log] game process 1 started 2026-11-22 10:00:00
+[android] game start, 0 argument(s)
+[rhi] graphics cards, fastest first: Adreno (TM) 840 [1]; using Adreno (TM) 840
+[rhi] gpu: Adreno (TM) 840, vendor 0x5143 device 0x44050001, type 1
+[rhi] gpu: driver 'Qualcomm Technologies Inc. Adreno Vulkan Driver' info 'V@0829.0' (id 3, conformance 1.4.0.0), driverVersion 0x00829000
+[rhi] gpu: Vulkan apiVersion 1.4.305
+[hb] t=10 frames=590 fps=59.0 frame_ms_max=18.0 thermal=none battery=80/33.0 mem_free=5000 game=lcs driver=system

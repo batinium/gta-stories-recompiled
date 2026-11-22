@@ -21,6 +21,7 @@ namespace game::trainer
     inline void setToggle(Toggle t, bool on) { GAME_TRAINER_PICK(setToggle(t, on)); }
     inline bool ready() { return GAME_TRAINER_PICK(ready()); }
     inline bool inVehicle() { return GAME_TRAINER_PICK(inVehicle()); }
+    inline bool nearVehicle() { return GAME_TRAINER_PICK(nearVehicle()); } // [android]
     inline void heal() { GAME_TRAINER_PICK(heal()); }
     inline void addMoney(int amount) { GAME_TRAINER_PICK(addMoney(amount)); }
     inline void setWanted(int stars) { GAME_TRAINER_PICK(setWanted(stars)); }

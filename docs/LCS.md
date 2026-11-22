@@ -382,6 +382,8 @@ variable `src/game/lcs_*.cpp` reads, plus the shared ones LCS's work added or us
 | `LCS_CARCAM=0` | the mouse moves the right stick behind a vehicle instead of the camera |
 | `LCS_FREECAM=0` | the free camera is not installed (the trainer's Camera page does nothing) |
 | `VCS_FREEAIM=0` | no mouse free aim |
+| `LCS_SHOT_LOG=1` | one `[lcs-shot]` line per player shot (stderr / logcat tag vcs; at most 40 a second): which of FireInstantHit's four line tests made it (`target` = toward the target, the arm IK's gun-pointed bit +0x33C set; `hand-bone` = a target but that bit clear, so along the right hand bone's X axis; `special`; `no-target` = along his matrix forward), the shot's heading / pitch, his matrix heading, m_fRotationCur / Dest, the hand bone's heading / pitch, the gun's offset from him, the target, the IK flags, +0x190 bits 39 / 41, the camera mode and Front heading (degrees, 0 = +x). `free-aim` lines: the line after `lcs_aim`'s camera redirect. Diagnostics for report B4 (shots / muzzle flash going another way than Toni faces), see Known issues |
+| `LCS_SHOT_TO_TARGET=1` | A/B only: a `hand-bone` shot (target, IK not pointed) is sent at the target instead (no spread) |
 | `LCS_MOUNTED_PAD=0` | a gun on a vehicle (mode 45) left to the game with Gamepad > Free aim on: the right stick does not turn it, R1 does not fire it |
 | `LCS_DRIVEBY_AIM=0`, `LCS_DRIVEBY_BIKE_FORWARD=0` | the game's own drive-by; a bike's straight-ahead drive-by left alone |
 | `LCS_DRIVEBY_ARM=0` | Toni's arm keeps the drive-by clip's pose (square to the side) instead of following the aim |
@@ -794,6 +796,8 @@ diving and a breath meter, the Android launcher's button (ModFormats: follow-up;
 works the same), a low concrete quay (none found near the tested shores: the boat's deck stood in for the ledge test).
 
 ## Known issues / not done yet
+
+- **Shots / muzzle flash another way than Toni faces (report B4, 2026-11-21, seen on the phone; PC not checked)**: not reproduced or pinned down yet. What the code says (decompile of FireInstantHit 0x2A4BF8): the muzzle flash, tracer and shells (0x2A5D30) are drawn along the shot's own line (gun -> end), so a flash pointing away is the shot itself going away, not a render fault. The line comes from one of four branches: with a target and the IK's gun-pointed bit (ped +0x33C bit 0) toward the target; with a target and the bit clear along the right hand bone's X axis as last drawn (VC's FireInstantHit does the same) - the only branch that can point away from both Toni's heading and the target; with no target along his matrix forward. `lcs_aim`'s free aim redirects only the two target branches, and only while its free aim is active (`Gamepad > Free aim` is off by default, so on touch the game's lock-on / hip fire is used). To capture on the phone: `python3 tools/android.py env LCS_SHOT_LOG=1`, fire a few shots hip-fire and locked on with a pistol / SMG, `python3 tools/android.py log` and keep the `[lcs-shot]` lines; then the same with `LCS_SHOT_TO_TARGET=1`.
 
 - **Memory**: no leak found; it levels off (2026-11-18, Windows, hidden, `tools/lcs_memsoak.py`, 24 landmarks a round
   over the three islands, 125 min). Draw distance 100%: private bytes 325 MB at the start, 420 after 15 min, ~510 from

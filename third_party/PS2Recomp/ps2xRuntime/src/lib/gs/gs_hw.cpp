@@ -13,6 +13,7 @@
 
 #include "render/gs_shaders.h" // [gta-recomp] D3D11 (RHI) execution
 #include "rhi/rhi.h"
+#include "gs_blend.h" // [gta-recomp] [android] gsBlend + its single-source form
 #include "runtime/ps2_hle_survey.h"
 
 #include <algorithm>
@@ -917,78 +918,13 @@ namespace
     };
 
     // GS blend (A - B) * C / 128 + D as a fixed-function blend (C from the shader's second output); false when not
-    // expressible (drawn unblended).
-    struct GsBlend
-    {
-        bool enable = false;
-        rhi::BlendFactor src = rhi::BlendFactor::One;
-        rhi::BlendFactor dst = rhi::BlendFactor::Zero;
-        rhi::BlendOp op = rhi::BlendOp::Add;
-        int premul = 0; // 0: none, 1: rgb *= C, 2: rgb *= 1 + C
-    };
+    // expressible (drawn unblended). [gta-recomp] [android] the mapping lives in gs_blend.h (shared with
+    // tools/gs_blend_check.cpp), with its single-source form for GPUs without dual-source blending
+    using gsblend::GsBlend;
 
     bool gsBlend(const HwState &s, GsBlend &b)
     {
-        using F = rhi::BlendFactor;
-        using O = rhi::BlendOp;
-        b = GsBlend{};
-        if (!s.abe)
-            return true;
-        const int A = s.ba, B = s.bb, D = s.bd;
-        O op = O::Add;
-        F src = F::One, dst = F::Zero;
-        if (A == B)
-        {
-            // (X - X) * C + D = D
-            if (D == 0) { src = F::One; dst = F::Zero; }
-            else if (D == 1) { src = F::Zero; dst = F::One; }
-            else { src = F::Zero; dst = F::Zero; }
-        }
-        else if (A == 0 && B == 1)
-        {
-            if (D == 1) { src = F::Src1Alpha; dst = F::InvSrc1Alpha; }                          // Cs*C + Cd*(1-C)
-            else if (D == 0) { b.premul = 2; op = O::Subtract; src = F::One; dst = F::Src1Alpha; } // Cs*(1+C) - Cd*C
-            else { src = F::Src1Alpha; dst = F::Src1Alpha; op = O::Subtract; }                 // (Cs - Cd)*C
-        }
-        else if (A == 0 && B == 2)
-        {
-            b.premul = 1; // Cs*C + D
-            src = F::One;
-            dst = (D == 1) ? F::One : F::Zero;
-            if (D == 0) { b.premul = 2; src = F::One; dst = F::Zero; }
-        }
-        else if (A == 1 && B == 0)
-        {
-            if (D == 0) { src = F::InvSrc1Alpha; dst = F::Src1Alpha; } // Cs*(1-C) + Cd*C
-            else return false;
-        }
-        else if (A == 2 && B == 0)
-        {
-            b.premul = 1; // D - Cs*C
-            if (D == 1) { op = O::ReverseSubtract; src = F::One; dst = F::One; }
-            else { src = F::Zero; dst = F::Zero; }
-        }
-        else if (A == 2 && B == 1)
-        {
-            if (D == 1) { src = F::Zero; dst = F::InvSrc1Alpha; }                               // Cd*(1-C)
-            else if (D == 0) { op = O::ReverseSubtract; src = F::One; dst = F::Src1Alpha; }       // Cs - Cd*C
-            else return false;
-        }
-        else if (A == 1 && B == 2)
-        {
-            if (D == 0) { src = F::One; dst = F::Src1Alpha; }  // Cs + Cd*C
-            else if (D == 2) { src = F::Zero; dst = F::Src1Alpha; } // Cd*C
-            else return false;
-        }
-        else
-        {
-            return false;
-        }
-        b.enable = true;
-        b.src = src;
-        b.dst = dst;
-        b.op = op;
-        return true;
+        return gsblend::gsBlend(s.abe != 0, s.ba, s.bb, s.bd, b);
     }
 
     // F12 / PS2X_HW_DUMP: one line per draw of the dumped frame (state + bounds).
@@ -1123,6 +1059,14 @@ namespace
                 }
             }
             m_ready = m_drawCb && m_quadCb && m_worldCb && m_point && m_linear && m_blit && m_fillColor && m_fillDepth;
+            // [android] the blend path: dual-source when the device has it, unless PS2X_NO_DUAL_SOURCE=1
+            const char *noDual = std::getenv("PS2X_NO_DUAL_SOURCE");
+            const bool forced = noDual && *noDual && *noDual != '0';
+            m_dualSource = m_dev.dualSourceBlend() && !forced;
+            std::fprintf(stderr, "[gs-hw] blend path: %s\n",
+                         m_dualSource ? "dual-source (reference)"
+                         : forced     ? "single-source (PS2X_NO_DUAL_SOURCE=1; As > 0x80 stored as 0x80 where C = As)"
+                                      : "single-source (the GPU has no dual-source blend; As > 0x80 stored as 0x80 where C = As)");
         }
 
         bool ready() const { return m_ready; }
@@ -2418,12 +2362,12 @@ namespace
         rhi::Pipeline &drawPipeline(const GsBlend &b, uint8_t mask, bool depthTest, uint32_t ztst, bool zwrite, uint8_t mode,
                                     uint8_t sample = 0)
         {
-            const bool dual = b.enable && (b.src == rhi::BlendFactor::Src1Alpha || b.src == rhi::BlendFactor::InvSrc1Alpha ||
-                                           b.dst == rhi::BlendFactor::Src1Alpha || b.dst == rhi::BlendFactor::InvSrc1Alpha);
+            const bool dual = gsblend::usesSrc1(b); // [android] (the same test, gs_blend.h)
             const uint32_t key = (b.enable ? 1u : 0u) | (static_cast<uint32_t>(b.src) << 1) | (static_cast<uint32_t>(b.dst) << 5) |
                                  (static_cast<uint32_t>(b.op) << 9) | (uint32_t(mask & 0xF) << 12) | ((depthTest ? 1u : 0u) << 16) |
                                  ((ztst & 3u) << 17) | ((zwrite ? 1u : 0u) << 19) | (uint32_t(mode & 7u) << 20) | ((dual ? 1u : 0u) << 23) |
-                                 (uint32_t(sample & 7u) << 24);
+                                 (uint32_t(sample & 7u) << 24) |
+                                 ((b.cInAlpha ? 1u : 0u) << 27); // [android] single-source, C in o0.a (alpha factors follow)
             std::unique_ptr<rhi::Pipeline> &p = m_drawPipelines[key];
             if (!p)
             {
@@ -2431,7 +2375,8 @@ namespace
                 rhi::PipelineDesc d;
                 // [gta-recomp] the pixel shader built for the draw's texture read (drawSampleMode)
                 // [gta-recomp] ... and without the depth output where the rasterised depth does (shaderDepth)
-                d.pixel = (shaderDepth() ? sh.drawPS : sh.drawPSNoDepth)[sample < render::GsShaders::kSampleModes ? sample : 0][dual ? 1 : 0];
+                d.pixel = (shaderDepth() ? sh.drawPS : sh.drawPSNoDepth)[sample < render::GsShaders::kSampleModes ? sample : 0]
+                                                                             [b.cInAlpha ? 2 : dual ? 1 : 0]; // [android] 2: C in o0.a
                 if (mode == 4)
                 {
                     // [gta-recomp] native VCS lit model (GSNativeDraw::VcsLit): skinned on the CPU, lit / transformed here
@@ -2460,7 +2405,9 @@ namespace
                 }
                 else
                 {
-                    d.vertex = sh.drawVS;
+                    // [android] Vulkan: points take the vertex shader with a point size output, the others have none (the
+                    // stock Adreno 840 driver refuses a pipeline whose vertex shader writes PointSize, gs_draw.hlsl)
+                    d.vertex = mode == 2 && sh.drawPointVS.size ? sh.drawPointVS : sh.drawVS;
                     d.attributes = {
                         {"POSITION", 0, rhi::VertexFormat::Float3, static_cast<uint32_t>(offsetof(HwVertex, x))},
                         {"TEXCOORD", 0, rhi::VertexFormat::Float3, static_cast<uint32_t>(offsetof(HwVertex, s))},
@@ -2474,8 +2421,8 @@ namespace
                 d.blend.srcColor = b.src;
                 d.blend.dstColor = b.dst;
                 d.blend.colorOp = b.op;
-                d.blend.srcAlpha = rhi::BlendFactor::One;
-                d.blend.dstAlpha = rhi::BlendFactor::Zero;
+                d.blend.srcAlpha = b.srcAlpha; // [android] One / Zero but on the single-source C = As path (gs_blend.h)
+                d.blend.dstAlpha = b.dstAlpha;
                 d.blend.writeMask = mask;
                 d.depth.test = depthTest;
                 d.depth.write = depthTest && zwrite;
@@ -3501,6 +3448,16 @@ namespace
             }
             c.blendCPremul[0] = s.bc;
             c.blendCPremul[1] = b.premul;
+            if (!m_dualSource) // [android] no dual-source blending: the same blend with ordinary factors (gs_blend.h)
+            {
+                gsblend::toSingleSource(b, s.bc);
+                if (b.constant)
+                {
+                    float k[4];
+                    gsblend::singleSourceConstant(s.bc, s.fix, k);
+                    m_dev.setBlendConstant(k);
+                }
+            }
 
             // frame write mask (whole channels only)
             const uint8_t mr = (s.fbmsk & 0xFFu) != 0xFFu, mg = (s.fbmsk & 0xFF00u) != 0xFF00u, mb = (s.fbmsk & 0xFF0000u) != 0xFF0000u,
@@ -3553,6 +3510,10 @@ namespace
         rhi::Device &m_dev;
         uint32_t m_scale;
         bool m_ready = false;
+        // [android] GS blends that need C as a factor use dual-source blending (the reference) when the device has it;
+        // without (Mali), or with PS2X_NO_DUAL_SOURCE=1 (to compare on a device that has it), the single-source form
+        // (gs_blend.h)
+        bool m_dualSource = true;
         std::unique_ptr<rhi::Buffer> m_vb, m_drawCb, m_quadCb, m_worldCb;
         std::vector<uint8_t> m_drawCbLast, m_worldCbLast; // [gta-recomp] updateConstants: what the two buffers hold
         std::unordered_map<uint64_t, std::unique_ptr<rhi::Buffer>> m_meshes; // native draws' vertex data

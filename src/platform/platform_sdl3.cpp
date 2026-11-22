@@ -21,6 +21,7 @@ namespace platform
 
 #if defined(__ANDROID__)
 #include "android/gamepads.h"       // [android] which controller is read (the chooser)
+#include "android/gpu_driver.h"     // [android] a custom GPU driver selected: no SDL_WINDOW_VULKAN
 #include "android/power.h"          // [android] power and heat: ADPF hints, thermal readings
 #include "android/stats.h"          // [android] the stats overlay: frames counted
 #include "android/touch_controls.h" // [android] the on-screen controls: a virtual pad and camera drags
@@ -547,6 +548,10 @@ namespace platform
         // manifest's sensorLandscape): landscape only, both ways round. Full screen hides the status and navigation bars.
         SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
         flags |= SDL_WINDOW_FULLSCREEN;
+        // [android] a custom GPU driver (src/android/gpu_driver.h): the Vulkan backend loads Vulkan and makes the surface
+        // itself, so SDL must not load the system's libvulkan.so (and the stock driver behind it) into this process
+        if (gpudriver::selected())
+            flags &= ~SDL_WINDOW_VULKAN;
 #endif
         // [stories] hosted: a child of the host's frame, made here (this thread pumps it), wrapped by SDL; shown by the
         // game in front (setWindowShown), never placed or remembered (the frame is)
@@ -797,6 +802,16 @@ namespace platform
         }
         *surface = reinterpret_cast<uint64_t>(made);
         return true;
+    }
+
+    void *androidNativeWindow()
+    {
+#if defined(__ANDROID__)
+        return g_window ? SDL_GetPointerProperty(SDL_GetWindowProperties(g_window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr)
+                        : nullptr;
+#else
+        return nullptr;
+#endif
     }
 
     uint32_t surfaceGeneration() { return g_surfaceGeneration; }

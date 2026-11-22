@@ -1,0 +1,9 @@
+# expect: tested=no failure=none lost=1 refused=0 report=gpu lost 1 problem=graphics driver crashed
+[log] game process 1 started 2026-11-22 10:00:00
+[android] game start, 0 argument(s)
+[rhi] graphics cards, fastest first: Adreno (TM) 740 [1]; using Adreno (TM) 740
+[rhi] gpu: Adreno (TM) 740, vendor 0x5143 device 0x43050a01, type 1
+[rhi] gpu: Vulkan apiVersion 1.3.268
+[hb] t=10 frames=590 fps=59.0 frame_ms_max=18.0 thermal=none battery=80/33.0 mem_free=5000 game=vcs driver=system
+[hle] world packets 256: culled 36, drawn 150 + 0 GPU-clipped (9100 vertices), 70 C++-clipped, VU fallback 0
+[rhi] vkQueueSubmit: VK_ERROR_DEVICE_LOST (graphics device lost)

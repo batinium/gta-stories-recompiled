@@ -26,6 +26,7 @@ namespace lcs::trainer
     void setToggle(Toggle t, bool on);
     bool ready();
     bool inVehicle();
+    bool nearVehicle(); // [android] on foot with an enterable vehicle in reach (touch overlay's door icon); see docs/ANDROID.md
     void heal();
     void addMoney(int amount);
     void setWanted(int stars);

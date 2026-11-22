@@ -1,0 +1,7 @@
+# expect: tested=no failure=none stalls=1 lost=0 refused=0 problem=froze
+[log] game process 1 started 2026-11-22 10:00:00
+[android] game start, 0 argument(s)
+[rhi] graphics cards, fastest first: Adreno (TM) 750 [1]; using Adreno (TM) 750
+[rhi] gpu: Adreno (TM) 750, vendor 0x5143 device 0x43051401, type 1
+[hb] t=10 frames=590 fps=59.0 frame_ms_max=18.0 thermal=none battery=80/33.0 mem_free=5000 game=vcs driver=system
+[watchdog] no frame for 8 s (frames so far 590; last hb: [hb] t=10 frames=590 fps=59.0 frame_ms_max=18.0 thermal=none battery=80/33.0 mem_free=5000 game=vcs driver=system)

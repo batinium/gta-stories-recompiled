@@ -139,12 +139,11 @@ final class StatsOverlay extends View {
     static String summary(Context c) {
         if (!enabled(c))
             return "Off";
-        StringBuilder s = new StringBuilder();
-        final String[] shortName = {"frame rate", "GPU", "CPU", "thermals", "battery", "memory", "build tag"};
+        int n = 0;
         for (int i = 0; i < ITEMS.length; i++)
             if (item(c, ITEMS[i][0]))
-                s.append(s.length() > 0 ? ", " : "").append(shortName[i]);
-        return s.length() > 0 ? "On: " + s : "On (every item off)";
+                n++;
+        return n > 0 ? "On · " + n + (n == 1 ? " item" : " items") : "On (every item off)";
     }
 
     // ---- the readings, on the stats thread ----

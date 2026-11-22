@@ -1,0 +1,7 @@
+# expect: tested=no failure=none lost=0 refused=0 problem=none
+[log] game process 1 started 2026-11-22 10:00:00
+[android] game start, 0 argument(s)
+[rhi] graphics cards, fastest first: Adreno (TM) 750 [1]; using Adreno (TM) 750
+[rhi] gpu: Adreno (TM) 750, vendor 0x5143 device 0x43051401, type 1
+[rhi] gpu: Vulkan apiVersion 1.3.274
+[hb] t=10 frames=300 fps=30.0 frame_ms_max=40.0 thermal=light battery=70/36.0 mem_free=3000 game=vcs driver=system

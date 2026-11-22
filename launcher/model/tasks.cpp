@@ -107,6 +107,10 @@ namespace launcher
             {"file_dates", {"Files are dated in the future",
                             "Some files in the folder are newer than the PC's clock, so the build keeps starting over. "
                             "Check that Windows' clock and time zone are right, then build again."}},
+            {"android_tools", {"Tools for the Android build are missing",
+                               "Run the setup command the message gives, in a terminal in this folder (or the "
+                               "build-android-pack script in tools): it lists the downloads, asks first and fetches "
+                               "them. Then try again."}},
             {"build_failed", {"The build failed", "Open the log for the details, or copy a report for help."}},
             {"recompiler_failed", {"Recompiling the game failed", "Open the log for the details, or copy a report for help."}},
             {"cpu_unsupported", {"This processor is too old for the game",
@@ -753,6 +757,9 @@ namespace launcher
             loadGame();
             return;
         }
+        // [android] the game library is ready: open the file manager with it selected (the done card has "Show the folder" too)
+        if (t.kind == "android_pack" && t.ok() && !t.cancelled && t.result["file"].str().size())
+            revealFile(pathFrom(t.result["file"].str()));
         // [stories] the packs before Play: a failure is said, never a stop (the game plays without that pack)
         if (t.kind == "packs")
         {
@@ -979,6 +986,21 @@ namespace launcher
             startBuildFor(step);
         p.started = true;
         return false;
+    }
+
+    // [android] the shown disc -> recompile -> build-game -> android-export/<game>/libvcs_game.so.gz; the script checks the
+    // tools and the path length first (tools/preflight.py) and says what is missing as an "android_tools" error
+    void App::startAndroidPack()
+    {
+        if (busy() || !disc.ok || iso.empty())
+            return;
+        const std::string game = disc.game.empty() ? gameId : disc.game;
+        runTool("android_pack", "Preparing for Android", {toolPath(root, "android_pack.py"), "--game", game, pathText(iso)});
+        if (busy())
+        {
+            task->game = game;
+            keepAwake(true);
+        }
     }
 
     void App::startInstallTools()

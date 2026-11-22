@@ -354,6 +354,7 @@ namespace lcs::trainer
         std::array<std::atomic<bool>, ToggleCount> g_toggles{};
         std::atomic<bool> g_ready{false};
         std::atomic<bool> g_inVehicle{false};
+        std::atomic<bool> g_nearVehicle{false}; // [android] see nearEnterableVehicle
         std::atomic<int> g_speed{100};
         std::atomic<int> g_clockHour{12};
         std::atomic<bool> g_missionRunning{false};
@@ -584,6 +585,36 @@ namespace lcs::trainer
             return n;
         }
         constexpr int kSpawnFreeSlots = 2; // the script's car and one for the game's own spawners in the same frame
+
+        // [android] True when the player is on foot and a live vehicle of the pool is within door reach (the touch
+        // overlay swaps Triangle's glyph for a door). Host-side guess by distance (the game's own Triangle search is not
+        // read; docs/ANDROID.md "Context icons"): read-only, one pass over <= 70 slots a frame, no allocation.
+        bool nearEnterableVehicle(const uint8_t *ram, uint32_t ped)
+        {
+            if (!ped || rd32(ram, ped + kPedState) == 0x32 || !alive(ram, ped))
+                return false;
+            const uint32_t pool = rd32(ram, kVehiclePool);
+            if (!pool || pool >= 0x02000000u)
+                return false;
+            const uint32_t entries = rd32(ram, pool), flags = rd32(ram, pool + 4), size = rd32(ram, pool + 8);
+            if (!entries || entries >= 0x02000000u || !flags || flags >= 0x02000000u || size > 256)
+                return false;
+            float me[3];
+            std::memcpy(me, ram + ((ped + kPosition) & kRamMask), sizeof me);
+            for (uint32_t i = 0; i < size; ++i)
+            {
+                if (ram[(flags + i) & kRamMask] & 0x80)
+                    continue;
+                const uint32_t e = entries + i * 0x780u;
+                float p[3], hp;
+                std::memcpy(p, ram + ((e + kPosition) & kRamMask), sizeof p);
+                std::memcpy(&hp, ram + ((e + kCarHealth) & kRamMask), sizeof hp);
+                const float dx = p[0] - me[0], dy = p[1] - me[1], dz = p[2] - me[2];
+                if (hp >= 250.0f && dx * dx + dy * dy < 3.6f * 3.6f && dz > -2.5f && dz < 2.5f)
+                    return true;
+            }
+            return false;
+        }
         // tests (`trainer poolreserve N`): N more slots asked for, so a "full" pool is simulated without touching it
         std::atomic<int> g_poolReserve{0};
         bool vehiclePoolFull(const uint8_t *ram) { return freeVehicleSlots(ram) < kSpawnFreeSlots + g_poolReserve.load(); }
@@ -1157,6 +1188,7 @@ namespace lcs::trainer
             const bool inGame = scriptSpace(ram) != 0 && ped != 0 && g_me != 0;
             g_ready = inGame;
             g_inVehicle = inGame && driving(ram, ped);
+            g_nearVehicle = inGame && nearEnterableVehicle(ram, ped); // [android]
             g_clockHour = ram[A.clockHours & kRamMask];
             g_missionRunning = inGame && ram[G.script.missionRunning & kRamMask] != 0;
             g_wanted = inGame ? static_cast<int32_t>(rd32(ram, ped + kPedWanted + kWantedLevel)) : 0;
@@ -1294,6 +1326,7 @@ namespace lcs::trainer
 
     bool ready() { return g_ready.load(std::memory_order_relaxed); }
     bool inVehicle() { return g_inVehicle.load(std::memory_order_relaxed); }
+    bool nearVehicle() { return g_nearVehicle.load(std::memory_order_relaxed); } // [android]
 
     void heal()
     {

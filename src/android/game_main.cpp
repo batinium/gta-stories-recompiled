@@ -9,6 +9,7 @@
 #include <SDL3/SDL_messagebox.h>
 
 #include "android/android_log.h"
+#include "android/diagnostics.h"
 #if defined(PS2X_SPLIT_RUNTIME) && PS2X_SPLIT_RUNTIME
 #include "android/game_library.h"
 #include "android/stories_host.h" // [stories] both cities: two games' own libraries instead of a code pack
@@ -91,6 +92,7 @@ int main(int argc, char *argv[]) // SDL_main.h renames this SDL_main, the symbol
     vcs_android::redirectStdioToLogcat("vcs");
     std::fprintf(stderr, "[android] game start, %d argument(s)%s%s\n", argc - 1, argc > 1 ? ": " : "", argc > 1 ? argv[1] : "");
     loadEnvFile();
+    vcs_android::startDiagnostics(); // [diag] heartbeat + stall watchdog in game.log (VCS_WATCHDOG=0: no watchdog)
 #if defined(PS2X_SPLIT_RUNTIME) && PS2X_SPLIT_RUNTIME
     if (vcs_android::storiesRequested()) // [stories] docs/ANDROID.md "Both cities on Android"
     {

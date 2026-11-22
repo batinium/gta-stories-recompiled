@@ -1,0 +1,9 @@
+# expect: tested=yes failure=none lost=0 refused=2 report=refused pipelines 2 problem=Black or broken picture
+[log] game process 1 started 2026-11-22 10:00:00
+[android] game start, 0 argument(s)
+[rhi] graphics cards, fastest first: Adreno (TM) 840 [1]; using Adreno (TM) 840
+[rhi] gpu: Adreno (TM) 840, vendor 0x5143 device 0x44050001, type 1
+[rhi] gpu: Vulkan apiVersion 1.4.295
+[rhi] pipeline 'present' ok: ps 1520 B vs 2292 B attrs 0 stride 0 topo 1 blend 1 (#0)
+[rhi] pipeline 'gs draw' failed (VK_ERROR_UNKNOWN, -13): topology 0 blend 0 src 1/1 op 0/0 dst 0/0 mask 0xf depth test 0 write 0 func 4 clip 1 scissor 0 color fmt 37 depth fmt 0 samples 1 ps 7980 B vs 5032 B attrs 4 stride 32 (pipeline #2, 13 shader modules)
+[rhi] pipeline 'gs draw' failed (VK_ERROR_UNKNOWN, -13): topology 0 blend 1 src 6/1 op 0/0 dst 7/0 mask 0xf depth test 1 write 1 func 6 clip 1 scissor 0 color fmt 37 depth fmt 126 samples 1 ps 8304 B vs 5032 B attrs 4 stride 32 (pipeline #6, 13 shader modules)

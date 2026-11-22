@@ -101,7 +101,8 @@ final class UpdateMenu {
                 .action(() -> check(true)));
         about.add(new MenuView.Item("What's new")
                 .visible(this::available)
-                .value(() -> newest == null ? "" : summaryLine(newest))
+                .value(() -> newest == null ? "" : newest.name.isEmpty() ? newest.tag : newest.name)
+                .help(() -> newest == null ? "" : summaryLine(newest))
                 .action(this::showNotes));
         about.add(new MenuView.Item("Update")
                 .visible(this::available)
@@ -137,18 +138,18 @@ final class UpdateMenu {
     // ---- the rows' text ---------------------------------------------------------------------------------------------
 
     private String checkState() {
-        String here = "This app " + (current != null ? current : BuildConfig.VERSION_NAME);
+        String here = current != null ? current.toString() : BuildConfig.VERSION_NAME;
         if (note != null)
             return note;
         if (!enabled())
-            return here + " · updates are off in this build";
+            return here + " · updates off in this build";
         if (!checked)
             return here + " · not checked yet";
         if (newest == null)
-            return here + " · no releases yet" + (skipped > 0 ? " (" + skipped + " without an APK or marked pre-release)" : "");
+            return here + " · no releases yet";
         if (available())
             return here + " · newest " + newest.version;
-        return "✓ " + here + " · up to date (newest " + newest.version + ")";
+        return "✓ " + here + " · up to date";
     }
 
     private static String summaryLine(UpdateVersion.Release r) {
@@ -160,9 +161,9 @@ final class UpdateMenu {
         if (newest == null)
             return "";
         UpdateVersion.Asset apk = newest.apk();
-        return newest.version + " · " + size(apk.size) + " · " + (needsNewLibrary(newest) ? "needs a new game library"
-                : GameFiles.bundledGame(activity) ? "the app alone: a personal build loses its game"
-                : "keeps your game library");
+        return newest.version + " · " + size(apk.size) + " · " + (needsNewLibrary(newest) ? "needs a new library"
+                : GameFiles.bundledGame(activity) ? "loses the built-in game"
+                : "keeps your library");
     }
 
     private static String size(long bytes) {

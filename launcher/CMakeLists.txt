@@ -34,6 +34,7 @@ set(VCS_LAUNCHER_COMMON
     screens/game_settings.cpp
     screens/overlays.cpp
     screens/gallery.cpp
+    screens/android_pack.cpp
     model/tasks.cpp
     model/game_settings.cpp
     model/process.cpp

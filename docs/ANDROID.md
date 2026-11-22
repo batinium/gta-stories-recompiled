@@ -40,9 +40,13 @@ Not for Google Play: its policy forbids loading executable code from outside the
 **The player's game library** (Windows, macOS or Linux; the README's Player's guide has the details):
 
 ```
+python3 tools/android.py setup                 # once: fetch the missing tools (asks first; "PC builder" below)
 python3 tools/recompile.py "<your disc>.iso"   # once: the disc's executable -> generated/ (C++), with a host compiler
 python3 tools/android.py build-game            # generated/ -> build/android/game/libvcs_game.so, with the NDK
 ```
+
+Or all in one: `tools\build-android-pack.bat` (Windows) / `tools/build-android-pack.command` (macOS, Linux), double-click
+or `[vcs|lcs] "<iso>"`: the same as the launcher's "Prepare for Android" (`tools/android_pack.py`).
 
 `tools/build.py --recompile <iso>` makes the same `generated/` and also builds the PC game (longer; not needed here).
 `build-game` configures its own tree (`build/android/game/cmake`) with the SDK's CMake and Ninja and the NDK's
@@ -73,8 +77,99 @@ movies; Windows: Git for Windows' sh; "Movies (FFmpeg)" below). Gradle 8.14.3 co
 forward slashes. glslangValidator: the LunarG Vulkan SDK (its installer sets `VULKAN_SDK`; `Bin\glslangValidator.exe`
 is found from it) or `VCS_GLSLANG=<path>`. `tools/recompile.py` builds the recompiler with llvm-mingw, downloaded once
 into `build/build-tools` (upstream's toolchain, `tools/build.py`'s docstring), so no Visual Studio is needed. Keep the
-clone in a short folder (e.g. `C:\vcs`): the build tree's object paths can pass Windows' 260-character limit.
+clone in a short folder (e.g. `C:\gta`): the build tree's object paths can pass Windows' 260-character limit.
 Not yet run on a Windows PC (2026-11-17: read through and the path handling fixed; macOS builds).
+Checks up front (2026-11-21, `tools/preflight.py`, tested by `tools/preflight_check.py` with faked machines and a
+synthetic ISO; the Windows reports D1-D4 in internal/GPU_REPORTS): `recompile.py` and `android.py build / build-game`
+fail at once when the repository path would push the deepest build file past 259 characters (advice: move to
+`C:\gta`; the estimate is the VMA dependency's stamp file, the longest in every CMake tree, plus 8); `python
+tools/android.py preflight` (and the start of `build` / `build-game`) lists *everything* missing in one message with
+the install command or URL: Python 3.8+, SDK (ANDROID_HOME / ANDROID_SDK_ROOT / `%LOCALAPPDATA%\Android\Sdk`), NDK,
+CMake + Ninja, glslangValidator (VULKAN_SDK / VCS_GLSLANG / PATH), git, and for the APK a JDK 17+. `recompile.py`
+without `--game` reads the disc's SYSTEM.CNF (no extraction) and picks VCS (SLUS_215.90) or LCS (SLUS_214.23); another
+disc: "this disc is X: expected VCS or LCS"; `--game` against the disc: an error naming both.
+`tools\build-android-pack.bat [vcs|lcs] ["<iso>"]` (and its macOS twin, `.command`) runs `tools/android_pack.py`
+with the release's `python\`, else `py -3`, else `python`; the tools it lacks are fetched by `setup` ("PC builder:
+Windows vs macOS" below).
+**Launcher button** (2026-11-21, D5; untested on Windows): the PC launcher's Home has "Prepare for Android" under "Game
+settings" (`launcher/screens/android_pack.cpp`, a sheet; `[android]`). It shows the disc of the current game (Choose
+another disc: the launcher's own picker and disc check; the game is the disc's) and starts `tools/android_pack.py`, a
+launcher task like a build (stages, log drawer, Cancel; its Python is the release's `python\`, else `py -3` / `python`):
+preflight (everything missing in one message with the install hints, error code `android_tools`; the path length, `path_too_long`),
+`recompile.py --game X <iso>`, `android.py build-game --game X`, then `libvcs_game.so.gz` is copied to
+`android-export/<game>/` (untracked, in .gitignore). The result card says "Copy this file to your phone and use Disc >
+Import game library in the app", warns "It contains your game's code: never share it", and has "Show the folder". The sheet
+also warns on Windows when the launcher's folder path is over 50 characters (the script's check is the real one).
+Missing tools: the launcher never downloads on its own; its `android_tools` error carries the setup command (D5: a
+launcher button that runs `setup --yes` after the player's own click is still to do).
+
+### Prepare for Android: progress and the finished file (2026-11-22)
+
+`tools/android_pack.py` shows **one progress bar** in the launcher across its steps: recompile 0-25 %, the NDK build
+25-98 %, the copy the rest. A step's own `@vcs` progress events are scaled into it (the recompile sends them); the NDK
+build has none, so Ninja's `[n/m]` lines are the bar there (unverified on a real run). A step's own error message is
+kept (not "see the log"). When the task ends well the launcher opens the file manager with `libvcs_game.so.gz` selected
+(`revealFile`: Explorer, Finder, the Linux file manager) and the done card keeps "Show the folder". The button is grey
+while another task runs (the quiet Stories packs before Play are one): the Home tooltip and the sheet say which.
+A PC's desktop build and this pack share only the recompiler's output (`generated/`, `generated-lcs/`): the pack is
+a separate ARM64 `.so` built from it with the NDK, so a PC build's files cannot be used on the phone.
+
+### PC builder: Windows vs macOS (2026-11-21)
+
+The game library is built on the player's PC; Windows and macOS (Linux as a bonus) must do it the same way.
+**Fetching the tools** (`python3 tools/android.py setup` = `tools/toolchain_fetch.py`): whatever `preflight` finds
+missing is downloaded, pinned, into one folder per user, `~/.vcs-toolchain` (`%USERPROFILE%\.vcs-toolchain`; another
+one: `VCS_ANDROID_TOOLCHAIN`, e.g. `C:\vcs-tools` when the user folder is long). Per user, not per clone: the NDK is
+~1 GB to download and 2.8 GB unpacked, and every release / clone shares it. Nothing is written elsewhere (sdkmanager's
+`~/.android` state goes into `<folder>/android-user-home`), no admin rights; delete the folder to undo.
+
+| What | Source (pinned) | Check |
+|---|---|---|
+| JDK 17 (sdkmanager runs on it; the APK's Gradle) | Eclipse Temurin 17.0.18+8, Adoptium's GitHub release | SHA-256 (Temurin's `.sha256.txt`) |
+| Android command-line tools (sdkmanager) | dl.google.com `commandlinetools-*-15859902_latest.zip` | SHA-256 (developer.android.com/studio's table) |
+| NDK 28.2.13676358 (r28c), CMake 3.31.5 | Google's SDK repository, through Google's own sdkmanager | sdkmanager's (SHA-1 from repository2-3.xml) |
+| glslangValidator | KhronosGroup glslang 16.6.0 release (macOS universal, Windows x64, Linux x64) | SHA-256 (GitHub's asset digest) |
+| git (Windows only) | MinGit 2.56.1 64-bit, git-for-windows release | SHA-256 (GitHub's asset digest) |
+
+Python is not fetched (the tool runs on it); git on macOS comes with Apple's Command Line Tools (`xcode-select
+--install`), on Linux from the distribution. Before anything is downloaded it lists each file, its size and source, the
+total and the disk space, and asks `[y/N]` (only y / yes goes on); `--yes` skips the question (scripts), without a
+terminal and without `--yes` it refuses; `--dry-run` only lists. Downloads go to `<folder>/downloads/*.part`
+(interrupted: continued with an HTTP range), are hashed, a mismatch is deleted and refused, then renamed and unpacked
+into `<name>.unpack` and moved into place (the archive is deleted). **Licences**: Google's Android SDK licences are
+accepted by the user, never silently: in a terminal sdkmanager shows each one and the user types y; else
+`--accept-android-licenses` prints them all and answers y as asked; with neither, setup stops before downloading
+anything. Temurin (GPLv2 with the Classpath Exception), glslang (BSD-style) and MinGit (GPLv2) come under their own
+licences from their own publishers. **This project ships none of these tools**: the player's machine downloads them
+from the official sources after the player said yes. (sdkmanager 22 prints that it is deprecated in favour of the new
+`android` CLI; it still installs. Replace it when Google stops serving it.)
+
+After a fetch the build finds everything by itself: `preflight.find_sdk` takes the first *complete* SDK (ANDROID_HOME,
+ANDROID_SDK_ROOT, Android Studio's folders, then the toolchain's), `tools/android.py` takes its SDK and glslang from
+preflight (one logic), and `toolchain_fetch.apply_env` appends the toolchain's glslang / MinGit folders to PATH (the
+user's own tools first) and sets JAVA_HOME to its JDK when no JDK 17 is found otherwise.
+
+| Feature | Windows | macOS |
+|---|---|---|
+| One command / double-click script | `tools\build-android-pack.bat`: done, **untested on Windows** | `tools/build-android-pack.command` (mode 755): done, run here from bash |
+| Same prompts and messages in the two scripts | done (`preflight_check.py` compares their `[pack]` lines) | done |
+| Disc asked for when double-clicked, window waits for Enter | done, untested | done (a dragged path's escapes undone) |
+| Python: release's `python` folder, else system | `python\python.exe`, `py -3`, `python` | `python/bin/python3`, `python3` |
+| Pipeline (preflight, fetch offer, recompile, build-game, export) | `tools/android_pack.py` (shared) | the same script |
+| Missing-tool check, one message, setup command first | done (fake-host tests) | done, run here |
+| Install hints when fetching is declined | winget / LunarG Vulkan SDK / git-scm | brew / xcode-select |
+| Fetch JDK 17 | Temurin x64 zip: **untested** | Temurin aarch64 / x64 tar.gz: logic tested with fakes; not downloaded here (a JDK 17 is installed) |
+| Fetch command-line tools | win zip, `sdkmanager.bat`: **untested** | mac_arm64 / mac_x86_64 zip: downloaded and unpacked here, sdkmanager runs and lists the packages |
+| NDK + CMake through sdkmanager | **untested** | URLs and sizes via `--dry-run`; the 1 GB NDK not downloaded again (installed); licence flow tested with a fake sdkmanager |
+| Fetch glslangValidator | x64 zip: **untested** | universal tar.gz: downloaded here, compiles the project's shaders |
+| Fetch git | MinGit zip: **untested** | not fetched: `xcode-select --install` hint |
+| SHA-256 check, resume, atomic unpack | shared code, tested with a fake server | the same |
+| Path-length check (260) | yes, before any long step; the toolchain folder must stay under 80 characters | not needed (no limit) |
+| Launcher "Prepare for Android" text | the same text, plus the long-path warning | the same text (launcher not rebuilt) |
+| Launcher runs the fetch itself | not yet (reports `android_tools` + the setup command) | not yet |
+
+Linux (x86-64) takes the same paths as macOS (Temurin / glslang tar.gz, the linux command-line tools); arm64 Linux has
+no NDK host build, so setup says so.
 
 - **Libraries**: `libmain.so` (SDL3, the runtime, our code) and `libsmoke.so`, from the repository's own
   `CMakeLists.txt` (the NDK's toolchain; `VCS_BUILD_TOOLS` is off: the recompiler is a host tool), and
@@ -218,9 +313,38 @@ the notes' lines and summary).
 
 ## Device requirements
 
-Vulkan 1.3 with dynamic rendering, synchronization2, demote-to-helper, dual-source blend, depth clamp, clip distance and
-`VK_KHR_push_descriptor` (`rhi_vulkan.cpp`, pickDevice). Checked 2026-11-17 on an Honor PNM-N49 (Snapdragon SM8850,
+Vulkan 1.3 with dynamic rendering, synchronization2, demote-to-helper, depth clamp, clip distance and
+`VK_KHR_push_descriptor` (`rhi_vulkan.cpp`, pickDevice). Dual-source blend is used when present and optional since
+2026-11-21 (below). Checked 2026-11-17 on an Honor PNM-N49 (Snapdragon SM8850,
 Adreno 840, Vulkan 1.4.295): all present, plus `VK_KHR_calibrated_timestamps`.
+
+### Blending without dual-source (Arm Mali, 2026-11-21)
+
+Mali drivers expose no `dualSrcBlend`; the device used to be refused (a Mali-G720 report: "Failed to initialize
+runtime"). Now `usable()` does not ask for it, the device enables it only when present (log
+`[rhi] Vulkan: dual-source blend present / absent`) and `rhi::Device::dualSourceBlend()` tells the GS renderer, which
+logs `[gs-hw] blend path: dual-source (reference)` or `single-source (...)`.
+
+The GS blend `(A - B) * C / 128 + D` needs C as a blend factor in 8 of its equations (`Cs*C + Cd*(1-C)`,
+`Cs*(1+C) - Cd*C`, `(Cs-Cd)*C`, `Cs*(1-C) + Cd*C`, `Cd*(1-C)`, the `A=2 B=1 D=0` one, `Cs + Cd*C`, `Cd*C`). The
+reference passes C as the shader's second output (`Src1Alpha`). The single-source form (ps2xRuntime `gs_blend.h`,
+`toSingleSource`) keeps every colour factor and op and replaces only the source of C:
+- C = As: the pixel shader writes `min(As/128, 1)` into the colour's alpha (`gs_draw.hlsl DUAL_SOURCE=2`, 14 more
+  pixel shaders), colour factors `SrcAlpha` / `InvSrcAlpha`. The alpha channel would then store C, not As: its own
+  factors are `Constant` (blend constant alpha 128/255) / `Zero`, so it stores `C * 128/255 = As` - exact for As up to
+  0x80; above that 0x80 is stored (bit 7, DATE's, still right). Seen only where a later pass reads that alpha (Ad
+  blends are taken as 1.0 anyway, render-target textures with alpha above 0x80).
+- C = Ad or FIX: one value for the draw (the shader takes Ad as 1.0 on both paths, FIX/128 at most 1): colour factors
+  `Constant` / `InvConstant` with the blend constant rgb = C, the plain shader, alpha as the reference. Exact.
+
+`tools/gs_blend_check.cpp` (host, no GPU) models both paths for every equation, C source and 8-bit input: colour
+identical to the reference everywhere; at most 1 step off if a GPU rounds the shader's alpha to 8 bits before blending
+(C = As only). Two differences from the PS2 belong to the reference itself, both paths: `Cs*(1+C) - Cd*C` saturates
+`Cs*(1+C)` in the shader output, and `A=2 B=1 D=0` (`Cs - Cd*C`) is drawn with ReverseSubtract (`Cd*C - Cs`).
+
+`PS2X_NO_DUAL_SOURCE=1` (files/env.txt) forces the single-source path on a GPU that has dual-source, to compare the two
+on the Adreno. To check on a Mali phone: the game starts, the two log lines, and translucent surfaces (sky, water,
+particles, HUD fades, shadows) as on the Adreno.
 
 ## The window's surface
 
@@ -238,6 +362,18 @@ swapchain is identity: every acquire / present returns `VK_SUBOPTIMAL_KHR`. That
 again (it did, every frame: 627 swapchains in 10 s); the compositor turns the picture. Pre-rotated rendering is on the
 work list. (`VCSActivity.applyOrientation` overrides SDL's orientation: a near-square screen either way, a phone-shaped
 one landscape unless Portrait mode is on - "Layout editor".)
+
+**Bars and insets** (issue #1: Retroid Pocket 6, Android 13, 3-button navigation: a permanent black bar at the bottom
+after the bar hid; gone with gesture navigation). SDL hides the bars only with the legacy `SYSTEM_UI_FLAG_*` flags and
+`FLAG_FULLSCREEN` (`SDLActivity.COMMAND_CHANGE_WINDOW_STYLE`, asynchronous, and re-applied 2 s after a change), while the
+window stayed `decorFitsSystemWindows` (true): the content area keeps the 3-button bar's height when the legacy hide
+does not take or only half takes on that ROM. (Inferred from the code, not reproduced; gesture navigation has no bar to
+reserve.) `Immersive.java` now makes the window edge to edge (`setDecorFitsSystemWindows(false)`, cutout mode ALWAYS)
+and hides the bars with `WindowInsetsController` (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`) at start, on resume and on
+every focus gain. Logcat (tag vcs, `[window]`): `start` and `insets` lines (bars / cutout / tappable insets, whether the
+navigation bar is visible, the window's bounds) and `decor WxH, display WxH` when the decor view's size changes: a
+report with a black bar should show a decor height below the display height, or a non-zero bottom inset. The launcher
+keeps its bars (it pads for them) and logs `launcher insets`. Unchecked on the phone.
 
 Checked 2026-11-17 on the Honor (cover screen, 2420x1080): 60 fps, the test picture letterboxed 4:3, Dear ImGui on top
 with touch, Home and back: surface generation 1, the picture back.
@@ -617,6 +753,45 @@ leaves it.
   exact height so the dialog's own layout shrinks the scrolling message and keeps the buttons; it re-checks on folds and
   turns. A new dialog must go through it too.
 
+### Storage location (issue #3)
+
+Request: "store game data on our external storage" (SD card). Decision (2026-11-21): **no "app data location" switch**;
+built instead: About > Where your data is shows the size of each part, the free space (phone and SD card) and how to
+move the disc (`StorageInfo.java`; the folders are walked off the UI thread).
+
+What the app keeps, all under `getFilesDir()` (`files/`; the native side finds it through `VCS_APP_DIR`, `VCS_DATA_DIR`,
+`VCS_GAME_LIBRARY`, set in `VCSActivity.onCreate`), per game:
+
+| Part | Where | Typical size | Moves to the SD card? |
+|---|---|---|---|
+| Disc image (.iso) | where the player picked it (SAF URI, never copied) | 1 to 4 GB | Already free to live there: copy it, pick it again |
+| Code pack | `files/game/<id>/libvcs_game.so` | 37 MB (LCS), 62 MB class (VCS) | **No** (see below) |
+| Saves | `files/userdata[-lcs]/mc0` | 8 MB card at most | Not wanted: safety and speed |
+| Settings | `files/vcs.ini`, `env.txt` | KB | Not wanted |
+| Caches | `files/userdata*/cache` (the ELF staged from the disc, a few MB), converted mod models next to each mod | MB to tens of MB | Possible, but too small to matter |
+| Logs | `files/logs` | 16 MB cap per game.log | Not wanted (crash reports need them) |
+| Phone build tree and tools | `files/build/<id>`, `files/builder` | about 1 GB while building, the compiler about 70 MB | Tools must execute: no |
+
+The README's "about 3 GB free per game" is not stored data: it is headroom for the phone build (about 1 GB of working
+files plus the compiler, `PhoneBuild.NEED_FREE`) and the code pack, on top of the disc. The disc is the only big thing, and
+it already lives wherever the player keeps it.
+
+Why the code pack cannot move: it is a `.so` loaded with `dlopen` (`src/android/game_library.cpp`). The app-specific
+folder on an SD card / secondary volume is a FUSE / sdcardfs mount that Android mounts `noexec`, so the `mmap(PROT_EXEC)`
+that `dlopen` needs is refused; from Android 10 apps also may not execute files they write outside their code folders.
+Internal `files/` is the place that works (it is what is used today). Not tested on a phone with an SD card (none to hand);
+the rule is the platform's, so the pack stays internal.
+
+If a switch is wanted later (not built; recommended shape): "Move caches, converted mod models and the phone build's
+working files to `getExternalFilesDirs()[1]`" with (1) a free-space check on the target, (2) copy, verify sizes and names,
+only then delete the original, (3) a progress dialog and an undo that moves back, (4) at start, a missing volume
+(`Environment.getExternalStorageState(file) != MEDIA_MOUNTED`) falls back to internal with a message and **never** clears
+anything, (5) saves, vcs.ini, logs and the pack stay internal, (6) `VCS_DATA_DIR` would need a second variable
+(`VCS_CACHE_DIR`) read in `src/main.cpp` (`elfPath`) and `src/game/vcs_mods.cpp` (`cacheFolder`) since both build their
+paths from the data directory, and a line in the crash report naming the location. The gain is a few tens of MB, so the
+cost (two code paths in a game that must start every time) is not justified yet. The data moved by hand
+(copy `files/` elsewhere) would not be found: the folders are fixed.
+
 ## Crash reports
 
 Players report crashes without a PC or adb (0.3.1, after a "crashes on boot" report from a phone we had never run on).
@@ -632,7 +807,52 @@ Players report crashes without a PC or adb (0.3.1, after a "crashes on boot" rep
   the whole report; *Share…* sends it as text (cut to 400 KB, the share intent's limit). The report: phone model, chip
   (`Build.SOC_*`), Android version, app version and build tag, the game library's size, both logs and the app's own
   logcat (`logcat -d`: Android gives an app only its own lines, which include the GPU driver's messages for our process).
-  No game data, nothing from the disc.
+  No game data, nothing from the disc. It also states the compatibility mode (on / off) and lists `files/env.txt`.
+- **GPU facts and the draw ring (2026-11-21, for `VK_ERROR_DEVICE_LOST`, GPU_REPORTS B2)**: at device selection the
+  Vulkan RHI logs a `[rhi] gpu:` block: name, vendor / device id, driver name + info + conformance + `driverVersion`,
+  `apiVersion`, the state (yes / NO) of every feature `usable()` requires plus samplerAnisotropy, and the extensions we
+  use (push descriptor, swapchain, debug utils, calibrated timestamps). `src/rhi/vulkan/draw_ring.h` is an always-on ring
+  of the last 128 draws / markers / pass starts (pipeline name, marker-stack top, count, first / base, blend, depth,
+  render-target extent + format, bound texture mask, vertex / index buffer sizes): plain struct writes in `draw` /
+  `drawIndexed` / `pushMarker` / `beginPass`, no allocation or formatting while playing. `reportLost()` prints it once
+  (`[rhi] last N of M recorded draws / markers, oldest first:` + one line each) after the `[rhi] vkQueueSubmit:
+  VK_ERROR_DEVICE_LOST` line. These are stderr lines, so they go through the pump into `game.log` and logcat and are in
+  the crash report with no Java change (the report reads the last 1 MB of `game.log`). Not verified on a device.
+- **Start-up failures are explained by the launcher** (docs/ANDROID_LAUNCHER.md "Untested phones and start-up errors"):
+  it parses the `[rhi] graphics cards` line (`not usable: needs ...`, now `Vulkan 1.3 - this driver has X.Y` for an old
+  driver) and `Failed to initialize runtime` from `game.log`. Keep those message formats stable (`GpuLog.java`).
+- **Diagnostics (2026-11-21, GPU_REPORTS B1-B3: nothing to collect from users but this report)**
+  - *Heartbeat* (`src/android/diagnostics.cpp`, started from `game_main.cpp` after env.txt): a detached thread writes, every
+    10 s, `[hb] t=40 frames=2351 fps=58.9 frame_ms_max=31.2 thermal=light battery=71/36.5 mem_free=1830 game=vcs
+    driver=system` (+ ` bg=1` while the app is in the background). `frames` / `fps` / `frame_ms_max` are host frames
+    counted by `stats.cpp` (two atomics, no locks), `driver` is the custom driver's folder or `system`. Thermal status,
+    battery (percent / deg C) and free memory come from Java: `Diag.java` pushes them over JNI every 5 s (and on
+    pause / resume), `PowerManager.getCurrentThermalStatus` guarded for API 29+ (`?` below). Only `fprintf(stderr)`
+    into game.log (and logcat, as every log line); no extra logcat tag.
+  - *Stall watchdog* (same thread): the app in front and no host frame for 8 s logs once per stall
+    `[watchdog] no frame for 8 s (frames so far N; last hb: ...)` and then one line per native thread from
+    `/proc/self/task/*/{comm,stat,wchan}`: `[watchdog]   tid 123 GameThread: S (sleeping) wchan=futex_wait_queue`
+    (`wchan` is `-` where the kernel hides it, common for apps). It re-arms on the next frame and on every foreground
+    change. It reads and prints only: it never kills or alters the game. `VCS_WATCHDOG=0` in `files/env.txt` turns it off
+    (the heartbeat stays). A slow first load also trips it once (`frames so far 0`: "still starting?").
+  - *Report additions* (`CrashReport.java`, `ReportLog.java`): the summary line, thermal / battery / free memory / free
+    storage at report time, **recent process exits** (`ActivityManager.getHistoricalProcessExitReasons`, Android 11+,
+    the `:game` process: time, reason such as CRASH_NATIVE / ANR / LOW_MEMORY / SIGNALED / EXCESSIVE_RESOURCE_USAGE /
+    USER_REQUESTED, status, importance, rss, Android's description) and, for a run without `[android] game exit 0`,
+    its last `[hb]` line and last 5 lines. No new permission (READ_LOGS is not used; the manifest is unchanged).
+    `shortened()` now cuts by section so the header, exits and "where it stopped" always reach the share sheet.
+  - *What the report contains, in plain words*: the phone's make, model and chip, the Android version, the app's version,
+    whether the game library is installed, how the game's last runs ended, the phone's temperature, battery level, free
+    memory and storage, how fast the game ran (every 10 s), the settings the launcher passes (compat mode, custom GPU
+    driver, `env.txt`) and the game's own log text (graphics card and driver names, errors, a crash's stack).
+    *What it never contains*: the disc or anything from it (content, the disc's name), your saves, photos or files, your
+    name, accounts, contacts, location or phone number, the phone's serial / IMEI / advertising id. The only thing about
+    you is the phone model. The launcher's dialog says the same; the player sends the report on their own (nothing is
+    uploaded by the app). Caveat: the app's own logcat lines (also in the report) are Android's, not filtered here.
+- **Device support data (2026-11-21):** to decide whether a phone can be supported the report has a `[device]` block
+  (model, Android, chip/SoC, board, ABIs, RAM, screen, the Vulkan levels Android reports) and the game log has `[caps]` lines
+  for every Vulkan device the game sees, even a rejected one (api version, driver, core features, limits, memory heaps, the
+  full extension list), printed before the usability check (`logDeviceCaps` in `rhi_vulkan.cpp`). No serials or accounts.
 - What still escapes it: a crash before `SDL_main` starts (the library not loading: Android's own crash dialog; the
   logcat part of the report still has it), and the system's tombstone (not readable by apps).
 
@@ -671,6 +891,7 @@ smoke test and the game both have it).
   the free aim, the prompts and the bindings (Gamepad page) need nothing new, and a real controller keeps working beside it.
   An earlier Android port sends the layout to native code and lets it decide the hits because a touch there that hits no control
   is the Switch game's own touchscreen; this game has none, so the hits stay in Java.
+- **Default (2026-11-21): the drag.** `camera` now defaults to Drag (was Right stick); the stick stays one setting away (Controls > Camera). Saved choices are kept. Free aim: the AIM button latches R1 + L3, then the drag aims.
 - **Camera: the mouse camera, not the right stick.** A drag on the right half (on no control) is mouse motion: the view
   sends it in mouse counts (`nativeLook`, 3 counts per dp: half a turn across a phone's right half at 100% Mouse
   sensitivity) and `takeMouseMotion` adds it to the mouse's, captured or not. Chosen because a finger on glass is a
@@ -803,6 +1024,67 @@ Beside the pad above, set in the side panel's Controls tab (SharedPreferences `t
   a hold works as before (L2 + R2 held: look behind). Let go as the lock is (a menu or cutscene, leaving the vehicle).
   The latched button is drawn held. `TouchControls.lookLatch`, in `send()` after the accelerator lock and before
   remapping (so a remapped L2 / R2 latches what it is mapped to).
+- **Gestures** (2026-11-22, three settings, each default on; unchecked on the phone; the timing is `TouchGestures.java`,
+  plain Java checked by `python3 tools/android_gestures_check.py`; `TouchControls` feeds it the camera-area fingers and
+  acts on what it finds). All three act only while the game takes the pad (`nativeLookWanted`: no menu, no cutscene).
+  - *Double-tap fires* (`gesture_dtap_fire`): a tap (up within 200 ms, moved under 12 dp), then a second finger down
+    within 250 ms of the lift and within 40 dp: Circle is held (the game's real Circle, added after the remap, as the
+    mouse's left button is) until that finger lifts; it may drag meanwhile (aim while firing). If it moves past 12 dp
+    within 150 ms of landing it was a tap followed by a drag: the fire is cancelled. The drag itself is untouched
+    (every camera finger still turns the camera; the first tap moves nothing). On foot and in a vehicle.
+  - *Two-finger aim* (`gesture_two_finger_aim`): two camera-area fingers down and up within 300 ms of the first's
+    landing, neither moved past 12 dp, no third finger, and no finger on any control from the first landing to the last
+    lift (a drag + a button, or the left stick, never counts). Toggles free aim through the AIM button's code path
+    (`toggleAim`). On foot only (aim is latched off in a vehicle).
+  - *Weapon swipe* (`gesture_weapon_swipe`): a finger that lands on the weapon box (the right 60% of `hudMoney`, the
+    HUD's top-right cluster, plus 12 dp all round; approximate, like the HUD rectangles) and moves 36 dp sideways: right
+    is the next weapon, left the previous, once per touch. The game's own weapon change is R2 (next) / L2 (previous) on
+    foot (the mouse wheel presses them for one frame: `vcs_input.cpp` "wheelButton", both games); it is pulsed for 90 ms
+    (a few game frames at 30 fps, one edge). A clearly vertical move (past 14 dp, more vertical than horizontal) hands
+    the finger to the camera drag. Off the box nothing changes. Needs the HUD box known (Screen > HUD set), on foot.
+  - *Cost:* a finger that lands in the weapon box no longer starts a camera drag sideways; with the setting off it does.
+- **L3 and R3 on the overlay** (2026-11-22; setting `extra_buttons`, Controls > "L3 / R3 buttons": Hidden (default) /
+  R3 in vehicles / L3 and R3). The buttons stay in the code and in the layout editor's saved positions (a hidden
+  button's position stays in the saved layout, which is keyed by name); they are only left out of the default layout.
+  Remap (Remap buttons) can still map any button to L3 / R3, whatever is shown.
+  - *What they do, as far as this repo shows.* The pad bits are the PS2's stick clicks (`vcs_input.cpp` kL3 / kR3, keys
+    C / V, docs/CONTROLS.md). **L3** (both games): with R1 held it is the game's free aim (VCS game-internals.md 12c: help
+    text `H_GUN03`, `C?FREE1` = L3; LCS the same, docs/LCS.md: `lcs_aim.cpp`); the AIM button latches R1 + L3, so no
+    button is needed. Nothing else on L3 is evidenced in this repo. **R3**: the game's help texts name an "R3 button"
+    (`vcs_prompts.cpp` / `lcs_prompts.cpp` string tables), and `lcs_trainer.cpp` says LCS's vehicle side jobs
+    (taxi, paramedic, vigilante, ...) "started in their vehicle, as the game's own R3 does": so R3 in a vehicle starts
+    the vehicle's side job (LCS evidenced; VCS has the same side jobs in `vcs_trainer.cpp`, the same button by the
+    PS2 layout but not shown in this repo). **Look behind is not R3**: the repo's notes have it on L2 + R2 held (the
+    overlay's look latch), `kLookBehind` 0x6F4D4C is read by the car camera. What R3 does on foot (the PS2 manuals'
+    first-person / crouch is not evidenced here) was not found in the sources, so it is **unverified**; the decision
+    rests on: nothing known and wanted there, and the touch trainer already starts the side jobs.
+  - *Default:* both hidden. "R3 in vehicles" shows R3 only in the vehicle layout (to start a side job); "L3 and R3"
+    restores the old layout.
+- **Context icons: Triangle as a car door** (2026-11-21, setting-free, always on; unchecked on the phone): on foot with
+  an enterable vehicle in reach, the Triangle button draws a car door (`TouchControls.drawDoorIcon`, our own Canvas
+  paths) instead of the triangle glyph; the press still sends TRIANGLE. `STATE_NEAR_VEHICLE` (128) in
+  `nativeGameState` (touch_controls.h / `TouchControls.STATE_*`, set in `panelHostFrame` only when not in a vehicle).
+  `TouchControls.showDoorIcon`: not while in a vehicle, a pause / settings / trainer menu is up, or in the layout editor
+  (the editor keeps the plain glyph). The state poll (200 ms) invalidates the view when the bit flips.
+  - *Source of the bit.* Researched: the game's own "nearest enterable vehicle" (the code behind the Triangle press,
+    CPed::SetEnterCar's candidate search) is **not** read: nothing in this repo or docs/game-internals.md locates it
+    (no field or cheap query is known; the generated code, needed to find it, is not in this checkout), and host code
+    must never call guest functions (AGENTS.md rule 1). So the bit is a host-side distance test, run per game frame
+    in the trainers' `onGameFrame` (`nearEnterableVehicle`, `trainer::nearVehicle()`, read-only, no allocation, one
+    pass over the pool): VCS pool `*0x487A98` (flags +4 bit 7 free, size +8, 0x8C0 a vehicle, health +0x278), the
+    player ped `0x4E4910` (state +0x8C4 == 1 on foot, vehicle +0x480 == 0); LCS pool `*0x3D5AEC` (0x780 a vehicle,
+    health +0x268), ped via `addrs().world.playerPed` (+0x34C != 0x32 driving, alive). Both: position +0x30 (x, y, z),
+    vehicle health >= 250 (below it the game lets it burn), horizontal distance from the ped to the vehicle's origin
+    < 3.6 m and |dz| < 2.5 m.
+  - *Known inaccuracies.* Distance to the vehicle's centre, not to a door (a bus or truck's door is farther than 3.6 m
+    from its centre, a car's far side is the same distance as the near one); the game's own search also weighs facing
+    and the door's side, so the icon can show where Triangle does nothing, or miss for long vehicles. Boats, planes,
+    helicopters, bikes, locked cars, a parked scenery car the game refuses and a ped still entering / exiting (VCS
+    needs state 1) are not told apart; LCS's on-foot state is only "not driving and alive". No cutscene test (the
+    controls hide with the game's own cutscene state elsewhere). Unverified on the phone; thresholds are guesses
+    (`3.6f`, `2.5f`, `250.0f` in lcs_trainer.cpp / vcs_trainer.cpp, marked `[android]`).
+  - *Later.* The same bit pattern fits other context icons (a phone, a pickup, an enterable building): one more
+    STATE_* bit and a `drawFace` case each.
 
 ## Side panel
 
@@ -1053,6 +1335,74 @@ Ran on the test device 2026-11-17 with a player-supplied DLL: frames are generat
 rate setting allows it (the system otherwise caps the panel at 60); presents still mix 8 and 16 ms, and the phone runs
 hot at 2x resolution.
 
+## Custom GPU drivers (libadrenotools, 2026-11-21)
+
+Adreno phones whose stock driver is old or buggy (AYANEO Pocket FIT, Adreno 750, driver 07/17/24: device lost) or only
+offers Vulkan 1.1 (a Lenovo tablet, Snapdragon 8+ Gen 1: the 1.3 requirement fails) can load a newer Vulkan driver the
+**player** downloads themselves - typically Mesa Turnip (Vulkan 1.3 / 1.4 on Adreno 6xx / 7xx / 8xx), packaged for
+emulators as a .zip with `meta.json` and `libvulkan_freedreno.so`. Qualcomm only: libadrenotools hooks how Android's
+loader opens Qualcomm's driver; Mali / PowerVR / Xclipse cannot use it.
+
+**Legal posture**: we ship no driver, download none and point to no download. The APK has only libadrenotools' loader
+code (BSD-2-Clause) and its hook libraries; the driver is the player's file, imported like the disc and Lossless.dll
+(AGENTS.md: no GPU driver blobs in the repository or the APK; `*.so` is git-ignored).
+
+- **Library**: `third_party/libadrenotools` (github.com/bylaws/libadrenotools @ 8fae8ce254, 2024-09-10, BSD-2-Clause)
+  with its submodule `lib/linkernsbypass` (github.com/bylaws/liblinkernsbypass @ aa39758938, BSD-2-Clause);
+  `src/hook/kgsl.h` is a Linux UAPI header (GPL-2.0 WITH Linux-syscall-note). Copied without `tools/` (the blob patcher
+  and the qtimapper shim, not needed); 192 KB. No other dependency (this version has no lib_hook). Our CMake:
+  `src/android/adrenotools.cmake` (static `vcs_adrenotools` + `vcs_linkernsbypass` in `vcs_rhi`; the shared hooks
+  `libhook_impl.so`, `libmain_hook.so`, `libfile_redirect_hook.so`, `libgsl_alloc_hook.so`, ~50 KB, packaged beside
+  libmain.so - adrenotools loads them from `nativeLibraryDir`, which `useLegacyPackaging` already extracts). Switch:
+  CMake `VCS_GPU_DRIVERS` (ON on Android, OFF in a both-cities guest).
+- **Launcher**: *Settings > Custom GPU driver (Adreno only)*, ANDROID_LAUNCHER.md "Custom GPU driver" (import
+  validation, choice, removal, the fallback).
+- **The game's process**: `GpuDriver.env` (VCSActivity, before SDL starts; smoke test and game) sets `VCS_GPU_DRIVER`
+  (the folder), `VCS_GPU_DRIVER_LIB` (meta.json's libraryName) and `VCS_NATIVE_LIB_DIR`. Not in both-cities mode.
+  `VCS_GPU_DRIVERS=0` in files/env.txt is a kill switch.
+- **Native** (`src/android/gpu_driver.{h,cpp}`, `rhi_vulkan.cpp` `initLoader` / `makeSurface`):
+  - `adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM | ADRENOTOOLS_DRIVER_FILE_REDIRECT, files/gpu_drivers/tmp/,
+    nativeLibraryDir, files/gpu_drivers/<name>/, libraryName, files/gpu_drivers/redirect/, nullptr)` once, before the
+    first Vulkan call (`listVulkanGpus` or device creation). It returns a private copy of `/system/lib64/libvulkan.so`
+    whose HAL load is hooked to open the custom driver in its own linker namespace.
+  - `dlsym(handle, "vkGetInstanceProcAddr")` -> `volkInitializeCustom`: every Vulkan call of the RHI (and LSFG, volk's
+    globals) goes to that loader copy. A failure at any step logs `[gpu-driver] failed: ...` and `volkInitialize()`
+    loads the system's as before.
+  - **SDL**: `SDL_Vulkan_LoadLibrary` / `SDL_HINT_VULKAN_LIBRARY` only take a path (SDL 3.4.18
+    `Android_Vulkan_LoadLibrary`: `SDL_LoadObject(path)` + `vkGetInstanceProcAddr`), and a path cannot name the hooked
+    copy (a plain dlopen loads another, unhooked libvulkan.so whose dispatch does not know our instance). So with a
+    driver selected the RHI makes the surface itself: `vkCreateAndroidSurfaceKHR` through the loaded copy on
+    `platform::androidNativeWindow()` (SDL's `SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER`), at start and on
+    `recreateSurface`; the window is made without `SDL_WINDOW_VULKAN`, so SDL never loads the system loader (whose
+    `vkEnumerateInstanceExtensionProperties` would also load the stock driver into the process). The instance
+    extensions still come from `SDL_Vulkan_GetInstanceExtensions` (a fixed list on Android). Without a selection
+    nothing changes: SDL's surface, `volkInitialize()`.
+  - Log: `[gpu-driver] loading '<name>' ...`, `[gpu-driver] loaded ...` / `failed: ...`, the `[rhi] gpu:` block (the
+    driver the device reports: Turnip says `driver 'turnip Mesa driver' ...`) plus `[rhi] gpu: loader: custom driver
+    '<name>' (adrenotools)`, then `[gpu-driver] confirmed: device created ...` once the device and swapchain exist -
+    the launcher's sign that the driver works. adrenotools' own lines are logcat tags `hook_impl` / `linkernsbypass`
+    (in the crash report's logcat part).
+  - `usable()` is unchanged: a Vulkan 1.1 stock driver still fails it; with Turnip offering 1.3 the same phone passes.
+- **Safety**: `GpuDriver.checkLastRun` (ANDROID_LAUNCHER.md): no confirm line, device lost or a crash with the driver ->
+  back to the system driver with a notice; one try per selection.
+- **To check on the phone** (Honor, Adreno 840; nothing of this ran on a device yet):
+  1. Download a Turnip package yourself (an emulator driver .zip with meta.json + libvulkan_freedreno.so, recent
+     enough for Adreno 8xx). Settings > Custom GPU driver (Adreno only) > Import driver (.zip)…: the warning once, the
+     picker, "Imported and selected"; `adb shell run-as <package> ls files/gpu_drivers/<name>` shows meta.json and the
+     .so files only.
+  2. Play > Test graphics: logcat `[gpu-driver] loading`, `loaded`, `[rhi] gpu: driver 'turnip Mesa driver'`,
+     `[rhi] gpu: loader: custom driver`, `[gpu-driver] confirmed`; the test pattern draws; Home and back (the surface
+     made again by `recreateSurface`). Then the game: menu, gameplay, the stats overlay's GPU time.
+  3. `adb logcat -s hook_impl`: `loading custom driver: .../files/gpu_drivers/<name>/libvulkan_freedreno.so`. If instead
+     `hook failed ... falling back`, the stock driver is used (the `[rhi] gpu: driver` line names Qualcomm's): report
+     the hook's line (a linker namespace detail on this Android version).
+  4. Fallback: make the load fail (`run-as` rename the .so inside `files/gpu_drivers/<name>/`), Play: the next launcher
+     start says "The custom driver failed ...", the row shows the system driver, the next Play uses it. No second
+     notice. A .zip with a non-ARM64 .so or without meta.json is refused at import with a reason.
+  5. Choose *System driver (default)*: the next run's log has `[rhi] gpu: loader: system driver` and SDL's surface.
+  6. Remove… deletes the folder; removing the active one selects the system driver.
+  7. A Mali phone (if a tester has one): the row is greyed, "Not available: Adreno (Qualcomm) GPUs only".
+
 ## Power and heat
 
 Measured on the test phone, 2026-11-17: thermal status *severe* within 1-2 minutes at 2x resolution and 60 fps, the CPU
@@ -1136,7 +1486,10 @@ python3 tools/android.py env                                       # show it
 python3 tools/android.py env clear                                 # delete it
 ```
 
-It takes effect at the next game start (quit the game, Play again). The perf overlay (`graphics.perf_overlay`, F3) has a `THREADS ms worker / gs stage` line since then: with `EE ms` it shows which of the game thread, the render
+It takes effect at the next game start (quit the game, Play again). Players get a switch for the conservative subset:
+Settings > Compatibility mode writes a managed block into the same file, and a `VK_ERROR_DEVICE_LOST` turns it on by
+itself at the next launcher start (docs/ANDROID_LAUNCHER.md "Compatibility mode"; `tools/android.py env` replaces the
+whole file, block included). The perf overlay (`graphics.perf_overlay`, F3) has a `THREADS ms worker / gs stage` line since then: with `EE ms` it shows which of the game thread, the render
 worker and the GS stage holds a frame back. The ADPF session (Power and heat, item 5) also takes the `ChainWalk` thread
 (the asynchronous VIF1 chain walk, PERFORMANCE.md 37).
 ### Measuring (adb, before / after)
@@ -1187,6 +1540,13 @@ To check on the phone (not measured yet):
   enough at 30?
 
 ## Saves: import and export
+
+**Back up all saves / Restore a backup.** Two more rows in Saves (`SaveBackup.java`, no UI, tested on the PC's JVM by
+`tools/android_gpu_check.py`): one `.zip` with `vcs/mc0/...` and `lcs/mc0/...` (both games' card folders as on disk),
+and its restore (each folder in the zip replaces the same one on the card; replaced folders are copied to
+`<data dir>/backups/restore-<time>/`; entries with `..` or outside `vcs|lcs/mc0/` are refused; written beside the card
+first). Greyed while the game runs. The saves live only in the app's `files/`, so uninstalling or "clear data" deletes
+them: the launcher asks once per version (until a backup was made) with "Back up your saves".
 
 **Slots with pictures.** The launcher's Saves list starts with the card's slots (`Slot N`, the mission name, the time
 of its picture); the focused slot's picture sits over its help text. A PS2 save holds no picture and the game's Save
@@ -1740,6 +2100,22 @@ generation (above). To take:
 
 ## Work list
 
+- [x] **FIXED (2026-11-22): the stock Adreno 840 driver refused every `gs draw` pipeline (black picture).** Honor
+      PNM-N49 (Adreno 840, stock driver, Vulkan 1.4.295), LCS: `vkCreateGraphicsPipelines` returned `VK_ERROR_UNKNOWN`
+      (-13) for every pipeline built from the GS draw / world / lit vertex shaders (`present`, `gs blit`, `gs fill
+      depth`, which have no vertex input, were fine). Cause: the vertex shader wrote `PointSize`
+      (`gs_draw.hlsl` `VCS_POINT_SIZE`); this driver refuses a pipeline whose vertex shader has that output (Turnip and
+      the others accept it). Found by bisecting: all 29 refused (`VCS_PIPE_LOG=1` lists every pipeline made and
+      refused); not the pipeline cache (retry without it failed), not shader depth, specialisation, dual-source, dynamic
+      depth or the `[caps]` probe; removing `PointSize` and `ClipDistance` together made all 30 compile, `ClipDistance`
+      alone does not matter. Fix: Vulkan's normal vertex shaders have no point size; `kGsDrawPointVS`
+      (`-D VCS_POINT_VARIANT=1`) keeps it and `gs_hw.cpp` uses it for point draws only (`mode == 2`). D3D11 and Metal
+      unchanged (Metal keeps the vertex stage's point size). Verified on the phone: stock driver, LCS cutscene renders,
+      30 pipelines ok, 0 refused. Not verified: a point draw on the stock driver (a point pipeline may still be
+      refused: it would show as `pipeline ... failed` and only points would be missing), VCS, other Adreno phones, the
+      Windows / macOS builds (a new unused shader is compiled there). The Xiaomi Adreno 740 report (DEVICE_LOST) is a
+      different failure; it may or may not share this cause.
+
 - [x] NDK build of the platform layer, RHI and presenter; the smoke test APK
 - [x] Surface recreation after the background
 - [x] The game with the NDK (personal build: libmain.so in the APK); `main.cpp`'s paths under the app's folders
@@ -1801,7 +2177,8 @@ generation (above). To take:
 - [x] Stats overlay (frame rate, frame / GPU time, CPU caps, thermals, battery, memory, build tag); to check on the
       phone, including whether the View costs frames
 - [x] Release signing from the environment (`VCS_SIGN_STORE` / `_ALIAS` / `_PASS`), no key in the repository
-- [ ] Custom GPU drivers (libadrenotools), core affinity for the game / render threads
+- [x] Custom GPU drivers (libadrenotools; "Custom GPU drivers"): built, unchecked on the phone (its steps there)
+- [ ] Core affinity for the game / render threads
 - [ ] Rotation: render pre-rotated (`currentTransform`) instead of the compositor turning every frame
 - [ ] Performance on tile-based GPUs (load / store ops, pass splits)
 - [x] Power and heat: frame rate held to the refresh, 60 Hz panel, no pacing spin, ADPF hints, step-down to 30 fps

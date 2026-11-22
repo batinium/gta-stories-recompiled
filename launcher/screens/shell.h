@@ -35,6 +35,7 @@ namespace screens
         Help,
         Folder,
         Mods, // [mods] the shown game's mods (tools/mods.py)
+        Android, // [android] Prepare for Android (android_pack.cpp)
         Game, // the shown game's own settings (game_settings.cpp; the game's registry, its vcs.ini)
     };
 
@@ -177,6 +178,7 @@ namespace screens
     void drawDialogs(Rect window);
     void drawToasts(Rect window);
     void drawGallery(Rect r);
+    float drawAndroidPack(App &app, Rect r); // [android] the Prepare for Android sheet
     void drawFolderBody(Rect r, float &y);   // the folder step's content, also the Folder sheet's
     float drawGameSettings(App &app, Rect r); // the Game settings sheet's content (game_settings.cpp); returns its bottom
     void showGameSettingsGroup(const std::string &name); // display, world, audio, controls, game (--screen sheet:game:world)

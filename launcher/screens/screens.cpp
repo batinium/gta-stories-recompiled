@@ -325,7 +325,7 @@ namespace screens
     bool takesOver(const launcher::Task &t)
     {
         return t.kind == "build" || t.kind == "tools" || t.kind == "update" || t.kind == "rip" || t.kind == "report" ||
-               t.kind == "restore" || t.kind == "install" || (t.finished && !t.ok() && !t.cancelled);
+               t.kind == "restore" || t.kind == "install" || t.kind == "android_pack" || (t.finished && !t.ok() && !t.cancelled);
     }
 
     std::string duration(double seconds)
@@ -682,7 +682,7 @@ namespace screens
         }
         else if (kind == "sheet")
             openSheet(which == "saves" ? Sheet::Saves : which == "settings" ? Sheet::Settings : which == "help" ? Sheet::Help
-                      : which == "mods" ? Sheet::Mods : Sheet::Folder); // [mods] sheet:mods
+                      : which == "mods" ? Sheet::Mods : which == "android" ? Sheet::Android : Sheet::Folder); // [mods] sheet:mods
         else if (kind == "dialog")
         {
             if (which == "restore")

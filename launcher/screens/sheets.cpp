@@ -1056,6 +1056,7 @@ namespace screens
         case Sheet::Game: title = "Game settings"; subtitle = "Draw distance, resolution, frame rate, sound... before you play."; break;
         case Sheet::Help: title = "Help"; subtitle = "When something goes wrong, the logs say why."; break;
         case Sheet::Folder: title = "Build folder"; subtitle = "Where the game is built."; break;
+        case Sheet::Android: title = "Prepare for Android"; subtitle = "Build the game library for your phone."; break;
         case Sheet::Mods: title = "Mods"; subtitle = "Import, turn on and off, choose slots, settle conflicts."; break;
         default: break;
         }
@@ -1083,6 +1084,7 @@ namespace screens
         case Sheet::Folder: bottom = folder(app, content); break;
         case Sheet::Mods: bottom = modsSheet(app, content); break;
         case Sheet::Game: bottom = drawGameSettings(app, content); break;
+        case Sheet::Android: bottom = drawAndroidPack(app, content); break; // [android]
         default: break;
         }
         render::popOffset();

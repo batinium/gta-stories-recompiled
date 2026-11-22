@@ -748,7 +748,7 @@ final class ModFormats {
             files = unvcm(bytes);
         else if (lower.endsWith(".rar") || lower.endsWith(".7z"))
             throw new FormatException("A " + lower.substring(lower.lastIndexOf('.')) + " archive can't be opened on the phone (the app has no "
-                    + ".rar / .7z reader). Please pick a .zip instead, or unpack it and pick its files (a folder's files).");
+                    + ".rar / .7z reader). Pick a .zip instead, or unpack it and pick its files (a folder's files).");
         else if (modelFile(fileName) && bytes.length <= MAX_MODEL) {
             files = new Files();
             files.models.put(leaf(fileName), bytes);

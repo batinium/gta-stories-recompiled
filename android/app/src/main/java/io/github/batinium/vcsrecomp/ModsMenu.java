@@ -138,8 +138,8 @@ final class ModsMenu {
                     follow(); // [lcs] the chosen game's mods (rows are read in refresh(), first this one)
                     return true;
                 })
-                .value(() -> note != null ? note : "A .zip, a .vcm, handling.cfg / weapon.dat, or a .dff with its .txd (pick both)")
-                .help("Two ways: Import (the app keeps a copy; you can delete the original), or Keep where it is (the "
+                .value(() -> note != null ? note : ".zip, .vcm, .cfg, .dat or .dff + .txd")
+                .help("A .zip, a .vcm, handling.cfg / weapon.dat, or a .dff with its .txd (pick both). Two ways: Import (the app keeps a copy; you can delete the original), or Keep where it is (the "
                         + "app only reads it there and keeps no copy; don't move or delete it). You choose each time.")
                 .enabled(() -> !busy)
                 .action(this::pick));
@@ -162,7 +162,8 @@ final class ModsMenu {
             final int i = n;
             c.add(new MenuView.Item("Mod " + (n + 1))
                     .visible(() -> i < mods.size())
-                    .value(() -> i < mods.size() ? rowText(mods.get(i)) : "")
+                    .value(() -> i < mods.size() ? rowShort(mods.get(i)) : "")
+                    .help(() -> i < mods.size() ? rowText(mods.get(i)) : "")
                     .enabled(() -> !busy)
                     .action(() -> {
                         if (i < mods.size())
@@ -180,20 +181,38 @@ final class ModsMenu {
         // [mods3] LCS's sound mods: the music folder next to mods/ (lcs_usertracks.cpp), what converts (docs/LCS.md)
         c.add(new MenuView.Item("Your music")
                 .visible(() -> DiscCheck.LCS.id.equals(GameFiles.game(activity)))
-                .value(() -> "Copy .mp3 / .ogg / .flac / .wav files into files/userdata-lcs/music")
-                .help("They play as a radio station: in the game's side panel, Audio > User tracks chooses the station "
+                .value(() -> "Put audio files in the music folder")
+                .help("Copy .mp3 / .ogg / .flac / .wav files into files/userdata-lcs/music. They play as a radio station: in the game's side panel, Audio > User tracks chooses the station "
                         + "they replace (LCFR by default); its DJ and adverts go too. Nothing changes while the folder is "
                         + "empty. Replacing a weapon's or a car's sound with a .wav is done on the PC for now "
                         + "(tools/mods.py sound)."));
         c.add(new MenuView.Item("What converts")
-                .value(() -> "Handling, weapon lines, car and bike parts, paint, own wheels; not extras")
-                .help("Converted: every handling.cfg value with a match here (mass to lights, the flags bit by bit; "
+                .value(() -> "Handling, weapons, car and bike parts")
+                .help("Handling, weapon lines, car and bike parts, paint, own wheels; not extras. Converted: every handling.cfg value with a match here (mass to lights, the flags bit by bit; "
                         + "GTA III, VC and SA lines each in their own columns), weapon.dat range, rate, clip, damage and "
                         + "muzzle position (SA's std skill line), a car's body, doors, bonnet, boot, bumpers, windscreen and "
                         + "damaged parts, its paint, dummies and wheel size, the mod's own wheels (LCS: on that car only), "
                         + "a bike's forks, handlebars and wheels. Not converted: extras, collision, carcols numbers without "
                         + "a colour list, SA's other skill levels and suspension limits, animations, PC plugins. .rar / .7z: "
                         + "unpack on a PC. Each entry lists what it skipped."));
+    }
+
+    /** The row's short line: name, on / off and what needs a look; rowText() is the full one (the explanation) */
+    private String rowShort(Mod m) {
+        StringBuilder b = new StringBuilder(m.name).append(" · ").append(m.enabled ? "On" : "Off");
+        if (m.original.equals("missing"))
+            b.append(" · original missing");
+        else if (m.original.equals("changed"))
+            b.append(" · original changed");
+        else if (m.usable() < m.entries.size())
+            b.append(" · choose a slot");
+        else
+            for (ModFormats.Entry e : m.entries)
+                if (m.enabled && conflict(e)) {
+                    b.append(" · conflict");
+                    break;
+                }
+        return b.toString();
     }
 
     private String rowText(Mod m) {
@@ -338,7 +357,7 @@ final class ModsMenu {
                         conflicts++;
                 }
         return slots + (slots == 1 ? " slot changed" : " slots changed")
-                + (conflicts > 0 ? " · " + conflicts + (conflicts == 1 ? " conflict: choose which mod wins" : " conflicts: choose which mod wins") : "");
+                + (conflicts > 0 ? " · " + conflicts + (conflicts == 1 ? " conflict" : " conflicts") : "");
     }
 
     /** Every slot the mods change, overall; a conflict's row opens the choice of the winner */

@@ -38,6 +38,10 @@ namespace vcs_android
         std::atomic<int64_t> g_pubAt{0};
         int64_t g_logAt = 0;
 
+        // [diag] for the heartbeat / watchdog (diagnostics.cpp): all host frames since the start, the longest gap since taken
+        std::atomic<uint64_t> g_totalFrames{0};
+        std::atomic<int64_t> g_hbMaxGap{0};
+
         constexpr int64_t kWindowNs = 500000000;   // a publish every half second
         constexpr int64_t kStaleNs = 1500000000;   // no host frame for this long (a load, the background): nothing to show
     }
@@ -45,6 +49,9 @@ namespace vcs_android
     void noteHostFrame()
     {
         const int64_t t = nowNs();
+        g_totalFrames.fetch_add(1, std::memory_order_relaxed);
+        if (g_lastFrame && t - g_lastFrame > g_hbMaxGap.load(std::memory_order_relaxed)) // this thread is the only writer of the max
+            g_hbMaxGap.store(t - g_lastFrame, std::memory_order_relaxed);
         if (g_lastFrame && t - g_lastFrame < kStaleNs)
         {
             g_maxGap = std::max(g_maxGap, t - g_lastFrame);
@@ -99,6 +106,10 @@ namespace vcs_android
         g_gpuUs.fetch_add(static_cast<uint64_t>(ms * 1000.0), std::memory_order_relaxed);
         g_gpuN.fetch_add(1, std::memory_order_relaxed);
     }
+
+    uint64_t hostFrameTotal() { return g_totalFrames.load(std::memory_order_relaxed); }
+
+    int64_t takeMaxFrameGapNs() { return g_hbMaxGap.exchange(0, std::memory_order_relaxed); }
 
     bool gpuTimingWanted() { return g_gpuWanted.load(std::memory_order_relaxed); }
 }

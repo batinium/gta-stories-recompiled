@@ -54,6 +54,8 @@ public class VCSActivity extends SDLActivity {
             data.mkdirs();
             Log.i("vcs", "[android] game " + GameFiles.libraryGame(this) + ", data " + data.getName());
             Os.setenv("VCS_APP_DIR", getFilesDir().getAbsolutePath(), true);
+            // [diag] the game's name for the heartbeat line in game.log (src/android/diagnostics.cpp)
+            Os.setenv("VCS_DIAG_GAME", stories() ? "stories" : String.valueOf(GameFiles.libraryGame(this)), true);
             Os.setenv("VCS_DATA_DIR", data.getAbsolutePath(), true);
             // the split build: the player's game library, loaded by libmain.so before the game starts (game_main.cpp)
             Os.setenv("VCS_GAME_LIBRARY", GameFiles.gameLibrary(this).getAbsolutePath(), true);
@@ -77,13 +79,17 @@ public class VCSActivity extends SDLActivity {
         } catch (ErrnoException e) {
             Log.e("vcs", "setenv: " + e);
         }
+        GpuDriver.env(this, stories()); // [gpu-driver] a custom Vulkan driver (Adreno), read by the Vulkan backend
         Lsfg.env(this); // frame generation: VCS_LSFG* from the launcher's card (Lsfg.java), read once by the Vulkan backend
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        Immersive.install(this); // edge to edge, bars hidden (issue #1: black bar with 3-button navigation)
         preferDisplayMode();
         watchRefreshRate();
         applyOrientation();
         // the controller the game reads (Gamepads.java: Auto, a chosen pad, touch only); every pad-like device logged
+        if (!mBrokenLibraries && !getIntent().getBooleanExtra(EXTRA_SMOKE_TEST, false))
+            Diag.start(this); // [diag] thermal / battery / memory for the native heartbeat in game.log
         if (!mBrokenLibraries) {
             Gamepads.logDevices();
             Gamepads.apply(this);
@@ -237,6 +243,8 @@ public class VCSActivity extends SDLActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        Immersive.hideBars(this);
+        Diag.setForeground(this, true);
         if (gyro != null)
             gyro.setResumed(true);
         if (rumble != null)
@@ -244,9 +252,17 @@ public class VCSActivity extends SDLActivity {
     }
 
     @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus)
+            Immersive.hideBars(this); // the system shows the bars again after a dialog, the shade, a task switch
+    }
+
+    @Override
     protected void onPause() {
         if (controls != null)
             controls.releaseAll(); // nothing stays held while the game is away
+        Diag.setForeground(this, false);
         if (gyro != null)
             gyro.setResumed(false);
         if (rumble != null)
@@ -324,6 +340,7 @@ public class VCSActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        Diag.stop();
         if (displayListener != null) {
             android.hardware.display.DisplayManager dm = getSystemService(android.hardware.display.DisplayManager.class);
             if (dm != null)

@@ -222,6 +222,23 @@ namespace screens
             ui::label(kFontBody, px(theme::kSmall), {gs.right() + px(8), gs.y, strip.right() - gs.right(), gs.h}, theme::kDim, keys);
             popReveal();
             y += px(40);
+            // [android] Prepare for Android: the game library for the phone, built here (android_pack.cpp). Only when the
+            // bottom cards keep their room
+            if (y + px(40) + px(12) <= r.bottom() - px(36) - px(74))
+            {
+                pushReveal(since, 4);
+                const char *android = "Prepare for Android";
+                const Rect ab{left + px(4), y - px(4), ui::buttonWidth(android, theme::icon::kDownload), px(34)};
+                if (ui::button(android, ab, ButtonStyle::Ghost, theme::icon::kDownload, !app.busy()))
+                    openSheet(Sheet::Android);
+                // [android] greyed out while another task runs (the quiet Stories packs before Play are one): say which
+                static std::string androidTip;
+                androidTip = app.busy() ? "Wait: \"" + app.task->title + "\" is running. Prepare for Android starts when it is done."
+                                        : std::string("Build this game for your phone on this PC: one file to copy to it");
+                ui::tooltip(ui::id(android), ab, androidTip.c_str());
+                popReveal();
+                y += px(40);
+            }
         }
 
         // the game ended with an error, or the check failed: say why, under the button

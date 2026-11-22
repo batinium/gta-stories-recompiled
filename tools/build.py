@@ -121,6 +121,9 @@ def main():
 
     if a.oneproc:
         sys.exit(build_oneproc(a))
+    if not (a.check_deps or a.install_deps or a.launcher):
+        import preflight  # [android] Windows: stop before fetching tools when the tree would pass 260 characters
+        preflight.require_short_path(tc.ROOT, "build", build_dir=tc.BUILD)
     env = tc.build_env()
     if a.check_deps:
         if tc.IS_WINDOWS:

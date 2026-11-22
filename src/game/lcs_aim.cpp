@@ -113,6 +113,32 @@ namespace lcs::aim
                                        g_origMovesAiming = nullptr;
         uint8_t *g_rdram = nullptr;
 
+        // [lcs] Shot diagnostics (LCS_SHOT_LOG=1; report B4 "the shots / muzzle flash go another way than Toni faces").
+        // FireInstantHit 0x2A4BF8 makes one line test per shot, from the gun (a0) to the shot's end (a1), and its
+        // muzzle flash / tracer (0x2A5D30) and impact follow that line, so the line is the shot. Which of its four
+        // calls made it says why it points where it does (decompile 2026-11-21):
+        // - 0x2A52F8: a target (+0x6BC) and the arm IK's "gun pointed" bit (+0x33C bit 0, CPedIK +0x2C) set: toward
+        //   the target plus the spread (none in free aim);
+        // - 0x2A53F0: a target but the IK bit clear: `range` along the right hand bone's X axis (frame +0x2B4) as its
+        //   matrix was last drawn - wherever the hand's clip / IK left the gun pointing, not the target;
+        // - 0x2A5750: models 0xD5 / -0x3DA (a special shooter): along its matrix + spread, then DoDriveByAutoAiming;
+        // - 0x2A59BC: no target: along the ped's matrix forward (+0x10 / +0x14, z level), DoAutoAiming 0x2AD980 for a
+        //   ped flagged so (+0x198 bit 58) unless the player's gun has the free-aim flag.
+        // Each player shot prints one "[lcs-shot]" line (logcat tag vcs): the branch, the shot's heading / pitch, his
+        // matrix heading, m_fRotationCur / Dest, the hand bone's X heading, the target, the IK flags, the camera.
+        // LCS_SHOT_TO_TARGET=1 (A/B only, off by default): the 0x2A53F0 shot is aimed at the target instead (as the
+        // 0x2A52F8 branch without spread) - if the phone's bad shots are that branch, this makes them hit.
+        bool g_shotLog = false, g_shotToTarget = false;
+        constexpr uint32_t kFireReturns[4] = {0x002A52F8u, 0x002A53F0u, 0x002A5750u, 0x002A59BCu};
+        const char *const kFireBranch[4] = {"target", "hand-bone", "special", "no-target"};
+        int fireBranch(uint32_t ra)
+        {
+            for (int i = 0; i < 4; ++i)
+                if (ra == kFireReturns[i])
+                    return i;
+            return -1;
+        }
+
         enum class State
         {
             Idle,
@@ -135,7 +161,13 @@ namespace lcs::aim
         std::atomic<uint32_t> g_shots{0};
         std::atomic<int> g_stateOut{0};
 
-        bool inRam(uint32_t a) { return a >= 0x00100000u && (a & kRamMask) + 4 <= 0x02000000u; }
+        // [lcs] B4 2026-11-21: kScratch (the free-aim shot's start point, 0x60000) is below 0x100000, so every write to it was
+        // dropped and the shot started from whatever zeros it held: one heading for every free-aim shot (single-shot
+        // guns; the shotgun's own branch was spared). The scratch is ours: allow it.
+        bool inRam(uint32_t a)
+        {
+            return (a >= 0x00100000u && (a & kRamMask) + 4 <= 0x02000000u) || (a >= kScratch && a + 16 <= kScratch + 64);
+        }
         uint32_t rd32(uint32_t a)
         {
             uint32_t v = 0;
@@ -281,12 +313,89 @@ namespace lcs::aim
             g_origMovesAiming(rdram, ctx, runtime);
         }
 
+        // A bone's world matrix as last drawn (lcs_driveby.cpp's recipe: the clump's skin hierarchy, its matrices by
+        // node id); 0 if not found
+        uint32_t boneMatrix(uint32_t ped, uint32_t frameOff)
+        {
+            const uint32_t clump = rd32(ped + 0x50);
+            const uint32_t link = clump ? rd32(clump + 8) : 0;
+            const uint32_t hier = link && link != clump + 8 ? rd32(link + 0x10) : 0;
+            const uint32_t frame = rd32(ped + frameOff);
+            if (!hier || !frame)
+                return 0;
+            const uint32_t mats = rd32(hier + 0x28), nodes = rd32(hier + 0x30), count = rd32(hier + 4);
+            if (!inRam(nodes))
+                return 0;
+            const uint8_t id = g_rdram[(frame + 0x14) & kRamMask];
+            for (uint32_t i = 0; i < count && i < 64; ++i)
+                if (g_rdram[(nodes + i * 8) & kRamMask] == id)
+                    return inRam(mats) ? mats + i * 0x40 : 0;
+            return 0;
+        }
+
+        // degrees, math convention (0 = +x, counter-clockwise); GTA's headings (0 = +y) are this - 90
+        float yawDeg(float x, float y) { return std::atan2(y, x) * 57.29578f; }
+
+        void logShot(const char *what, int branch, uint32_t ped, uint32_t from, uint32_t to)
+        {
+            static uint32_t lastMs = 0, burst = 0;
+            const uint32_t now = rd32(game::addrs().timer.timeMs);
+            burst = now - lastMs < 1000u ? burst + 1 : 0;
+            lastMs = now;
+            if (burst > 40) // a minigun: 40 lines a second at most
+                return;
+            const float f[3] = {rdf(from), rdf(from + 4), rdf(from + 8)};
+            const float t[3] = {rdf(to), rdf(to + 4), rdf(to + 8)};
+            const float d[3] = {t[0] - f[0], t[1] - f[1], t[2] - f[2]};
+            const float h = std::sqrt(d[0] * d[0] + d[1] * d[1]);
+            const float facing = yawDeg(rdf(ped + 0x10), rdf(ped + 0x14));
+            const uint32_t hand = boneMatrix(ped, 0x2B4u);
+            const float handYaw = hand ? yawDeg(rdf(hand), rdf(hand + 4)) : -999.0f;
+            const float handPitch = hand ? std::atan2(rdf(hand + 8), std::sqrt(rdf(hand) * rdf(hand) + rdf(hand + 4) * rdf(hand + 4))) * 57.29578f
+                                         : -999.0f;
+            const uint32_t target = rd32(ped + A.pedTarget);
+            const uint32_t cam = activeCam();
+            const uint64_t flags190 = static_cast<uint64_t>(rd32(ped + 0x190)) | static_cast<uint64_t>(rd32(ped + 0x194)) << 32;
+            std::fprintf(stderr,
+                         "[lcs-shot] %s %s weapon=%u shot=%.1f pitch=%.1f len=%.1f facing=%.1f rotCur=%.1f rotDest=%.1f "
+                         "hand=%.1f/%.1f gunFromPed=%.2f,%.2f,%.2f target=0x%x%s ik=0x%x aimFlag=%d gunPointed=%d cbc=%u "
+                         "cam=%u camFront=%.1f state=%d step=%.2f\n",
+                         what, branch >= 0 ? kFireBranch[branch] : "?", weaponType(ped), yawDeg(d[0], d[1]),
+                         std::atan2(d[2], h) * 57.29578f, std::sqrt(h * h + d[2] * d[2]), facing,
+                         rdf(ped + 0x4E0) * 57.29578f + 90.0f, rdf(ped + 0x4E4) * 57.29578f + 90.0f, handYaw, handPitch,
+                         f[0] - rdf(ped + 0x30), f[1] - rdf(ped + 0x34), f[2] - rdf(ped + 0x38), target,
+                         target == g_dummy && target ? " (dummy)" : isObject(target) ? " (object)" : "", rd32(ped + 0x33C),
+                         static_cast<int>(flags190 >> 39 & 1u), static_cast<int>(flags190 >> 41 & 1u), rd32(ped + A.pedFreeAim),
+                         camMode(cam), yawDeg(rdf(cam + A.camFront), rdf(cam + A.camFront + 4)), static_cast<int>(g_state),
+                         rdf(game::addrs().timer.timeStep));
+        }
+
         // The weapons' line test (from a0 to a1; t1 the shooter): for the player's free-aim shot the line is the
         // camera's through the circle (vcs_aim.cpp's shotLine).
         PS2_GUEST_CC void shotLine(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             const uint32_t ped = playerPed();
             const uint32_t ra = GPR_U32(ctx, 31);
+            const int branch = (g_shotLog || g_shotToTarget) && ped && GPR_U32(ctx, 9) == ped ? fireBranch(ra) : -1;
+            if (branch >= 0 && g_shotLog)
+                logShot("game", branch, ped, GPR_U32(ctx, 4), GPR_U32(ctx, 5));
+            // LCS_SHOT_TO_TARGET=1 (A/B): the "IK not pointed" shot along the hand bone goes to the target instead
+            if (branch == 1 && g_shotToTarget && g_state != State::Active)
+                if (const uint32_t target = rd32(ped + A.pedTarget); inRam(target))
+                {
+                    const uint32_t from = GPR_U32(ctx, 4), to = GPR_U32(ctx, 5);
+                    const float f[3] = {rdf(from), rdf(from + 4), rdf(from + 8)};
+                    float d[3] = {rdf(target + 0x30) - f[0], rdf(target + 0x34) - f[1], rdf(target + 0x38) - f[2]};
+                    const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                    const float range = weaponRange(ped);
+                    if (len > 0.01f)
+                    {
+                        const float stop[3] = {f[0] + d[0] / len * range, f[1] + d[1] / len * range, f[2] + d[2] / len * range};
+                        wrVec(to, stop);
+                        if (g_shotLog)
+                            logShot("to-target", branch, ped, from, to);
+                    }
+                }
             if (g_state == State::Active && (ra == A.shotLineReturn[0] || ra == A.shotLineReturn[1]) && ped &&
                 GPR_U32(ctx, 9) == ped && rd32(ped + A.pedTarget) == g_dummy)
             {
@@ -311,6 +420,8 @@ namespace lcs::aim
                     wrVec(to, stop);
                     SET_GPR_U32(ctx, 4, kScratch);
                     g_shots.fetch_add(1, std::memory_order_relaxed);
+                    if (g_shotLog)
+                        logShot("free-aim", fireBranch(ra), ped, kScratch, to);
                 }
             }
             g_origShotLine(rdram, ctx, runtime);
@@ -325,6 +436,11 @@ namespace lcs::aim
             std::fprintf(stderr, "[lcs-aim] free aim off (VCS_FREEAIM=0)\n");
             return;
         }
+        g_shotLog = [] { const char *e = std::getenv("LCS_SHOT_LOG"); return e && e[0] == '1'; }();
+        g_shotToTarget = [] { const char *e = std::getenv("LCS_SHOT_TO_TARGET"); return e && e[0] == '1'; }();
+        if (g_shotLog || g_shotToTarget)
+            std::fprintf(stderr, "[lcs-shot] player shot log %s, hand-bone shots to the target %s\n", g_shotLog ? "on" : "off",
+                         g_shotToTarget ? "on (LCS_SHOT_TO_TARGET=1)" : "off");
         if (const char *e = std::getenv("LCS_MOUNTED_PAD"); e && e[0] == '0')
         {
             g_mountedPad = false;

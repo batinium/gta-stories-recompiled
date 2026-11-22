@@ -73,7 +73,7 @@ final class TouchControls extends View {
 
     // GameStateBits (src/android/touch_controls.h)
     static final int STATE_IN_VEHICLE = 1, STATE_AIMING = 2, STATE_SETTINGS_MENU = 4, STATE_TRAINER = 8, STATE_FREE_CAMERA = 16,
-            STATE_GAME = 32, STATE_PAUSE_MENU = 64;
+            STATE_GAME = 32, STATE_PAUSE_MENU = 64, STATE_NEAR_VEHICLE = 128;
 
     // ---- settings (SharedPreferences "touch_controls", shared with the launcher's process) ----
     static final int MODE_AUTO = 0, MODE_ON = 1, MODE_OFF = 2;
@@ -118,6 +118,27 @@ final class TouchControls extends View {
     private final String[] name = new String[MAX]; // each control's stable name: its key in the saved layout
     private final int[] stickIndex = {-1, -1}; // the left stick, the right one (-1: none)
     private int cruiseIndex = -1, crossIndex = -1; // the accelerator lock (in a vehicle), Cross
+    // [android] the AIM button (on foot): a tap latches R1 + L3 held, which is LCS's / VCS's free aim (two fingers cannot do it comfortably)
+    private int aimIndex = -1;
+    private boolean aimOn;
+    // [android] L3 / R3 on the overlay (Controls > Extra buttons): hidden by default, see docs/ANDROID.md "L3 and R3"
+    static final int EXTRA_HIDDEN = 0, EXTRA_R3_VEHICLE = 1, EXTRA_BOTH = 2;
+    static final String[] EXTRA_NAMES = {"Hidden", "R3 in vehicles", "L3 and R3"};
+    private int extraButtons = EXTRA_HIDDEN;
+    // [android] Gestures (TouchGestures.java; Controls > Gestures): double-tap = fire, two-finger tap = free aim, a swipe
+    // on the weapon box = next / previous weapon. Their pad bits are added in send() after the remap: they are the game's
+    // own Circle / L2 / R2, whatever the buttons are mapped to.
+    private boolean gestDtapFire = true, gestTwoFingerAim = true, gestWeaponSwipe = true;
+    private TouchGestures gestures;
+    private boolean gestFire;                  // a double-tap's second finger is down: Circle held
+    private int gestPulse;                     // a weapon swipe's L2 / R2, held for WEAPON_PULSE_MS
+    private static final long WEAPON_PULSE_MS = 90;
+    private long eventTime;                    // the touch event being handled (ms, SystemClock.uptimeMillis base)
+    private final float[] wsX = new float[16], wsY = new float[16]; // per slot: where a weapon-box finger landed
+    private final Runnable pulseOff = () -> {
+        gestPulse = 0;
+        send();
+    };
     private float tx, ty, tr; // the show / hide button
     private float gx, gy;     // the settings button (the game's settings menu: resolution, widescreen, frame rate...)
     private int gearId = -1;
@@ -137,7 +158,7 @@ final class TouchControls extends View {
     private float edgeX0;
 
     // ---- touches: one slot per pointer ----
-    private static final int NONE = -1, CAMERA = -2, IGNORED = -3;
+    private static final int NONE = -1, CAMERA = -2, IGNORED = -3, WEAPON = -4; // WEAPON: a finger in the weapon box (gestures)
     private static final int SLOTS = 16;
     private final int[] slotId = new int[SLOTS], slotTarget = new int[SLOTS], slotBits = new int[SLOTS];
     private final float[] slotX = new float[SLOTS], slotY = new float[SLOTS];
@@ -268,6 +289,7 @@ final class TouchControls extends View {
 
     TouchControls(Context c) {
         super(c);
+        gestures = new TouchGestures(c.getResources().getDisplayMetrics().density);
         loadPrefs();
         Arrays.fill(gsc, 1f);
         for (int k = 0; k < chip.length; k++)
@@ -289,8 +311,17 @@ final class TouchControls extends View {
         haptics = p.getBoolean("haptics", true);
         opacity = p.getFloat("opacity", 0.6f);
         float sc = p.getFloat("scale", 1f);
-        int cam = p.getInt("camera", CAMERA_STICK) == CAMERA_DRAG ? CAMERA_DRAG : CAMERA_STICK;
+        int cam = p.getInt("camera", CAMERA_DRAG) == CAMERA_STICK ? CAMERA_STICK : CAMERA_DRAG;
         boolean ctx = p.getBoolean("context_layouts", true), cruise = p.getBoolean("cruise_button", true);
+        int extra = Math.max(EXTRA_HIDDEN, Math.min(EXTRA_BOTH, p.getInt("extra_buttons", EXTRA_HIDDEN)));
+        gestDtapFire = p.getBoolean("gesture_dtap_fire", true);
+        gestTwoFingerAim = p.getBoolean("gesture_two_finger_aim", true);
+        gestWeaponSwipe = p.getBoolean("gesture_weapon_swipe", true);
+        if (!gestDtapFire && gestFire) {
+            gestFire = false;
+            if (gestures != null)
+                gestures.reset();
+        }
         ffSpeed = Math.max(2, Math.min(4, p.getInt("ff_speed", 2)));
         ffHold = p.getBoolean("ff_hold", false);
         try {
@@ -310,9 +341,10 @@ final class TouchControls extends View {
         if (!sprintToggle)
             sprintLatched = false;
         boolean gs = readGameSettings();
-        boolean re = gs || sc != scale || cam != camera || ctx != contextLayouts || cruise != cruiseButton;
+        boolean re = gs || sc != scale || cam != camera || ctx != contextLayouts || cruise != cruiseButton || extra != extraButtons;
         scale = sc;
         camera = cam;
+        extraButtons = extra;
         contextLayouts = ctx;
         cruiseButton = cruise;
         if (!cruise)
@@ -346,10 +378,13 @@ final class TouchControls extends View {
                 stats.setSuppressed(menuOpen()); // the chips sit where the menus are
             releaseAll();
         }
+        if (((was ^ st) & (STATE_NEAR_VEHICLE | STATE_IN_VEHICLE | STATE_PAUSE_MENU)) != 0)
+            invalidate(); // Triangle's glyph: a door while an enterable vehicle is in reach
         boolean car = (st & STATE_IN_VEHICLE) != 0;
         if (((was ^ st) & STATE_IN_VEHICLE) != 0) {
             sprintLatched = false;
             cruiseOn = false;
+            aimOn = false;
             lookLatched = 0;
             Log.i("vcs", "[touch] " + (car ? "in a vehicle" : "on foot") + (contextLayouts ? ": its layout" : ""));
         }
@@ -359,9 +394,13 @@ final class TouchControls extends View {
             relayoutPending = false;
             relayout();
         }
-        if ((sprintLatched || cruiseOn || lookLatched != 0) && !nativeLookWanted()) { // a menu or a cutscene: nothing stays latched
-            sprintLatched = cruiseOn = false;
+        if ((sprintLatched || cruiseOn || aimOn || lookLatched != 0) && !nativeLookWanted()) { // a menu or a cutscene: nothing stays latched
+            sprintLatched = cruiseOn = aimOn = false;
             lookLatched = 0;
+            gestFire = false;
+            gestPulse = 0;
+            if (gestures != null)
+                gestures.reset();
             send();
         }
     }
@@ -434,6 +473,11 @@ final class TouchControls extends View {
         panelId = -1;
         edgeId = -1;
         removeCallbacks(longPress);
+        removeCallbacks(pulseOff);
+        gestPulse = 0;
+        gestFire = false;
+        if (gestures != null)
+            gestures.reset();
         send();
         invalidate();
     }
@@ -551,6 +595,12 @@ final class TouchControls extends View {
         invalidate();
     }
 
+    /** [android] R3 is on the layout: with "L3 and R3", or in a vehicle with "R3 in vehicles" (its saved position stays
+     *  in the layout file while it is hidden: the layout keeps what was set by name) */
+    private boolean showR3() {
+        return extraButtons == EXTRA_BOTH || (extraButtons == EXTRA_R3_VEHICLE && vehicleLayout);
+    }
+
     /** The default layout for a landscape screen (and a near-square one either way); its unit */
     private float layoutLandscape(int w, int h, float u) {
         float fit = Math.min(1f, h / u / 340f), d = u * scale * fit, m = 14 * u;
@@ -571,11 +621,16 @@ final class TouchControls extends View {
         stickIndex[0] = add(STICK, 0, ROUND, 0, lx, ly, rStick, "", "LSTICK");
         add(DPAD, UP | DOWN | LEFT | RIGHT, ROUND, 1, Math.max(m + rPad, bar / 2), h - m - rPad, rPad, "", "DPAD");
         float diag = (rStick + rSmall + 6 * d) * 0.7071f;
-        add(BUTTON, L3, ROUND, 0, lx + diag, ly + diag, rSmall, "L3", "L3");
+        if (extraButtons == EXTRA_BOTH)
+            add(BUTTON, L3, ROUND, 0, lx + diag, ly + diag, rSmall, "L3", "L3");
         // right: the face buttons as on the PS2 pad, R3 low in the corner; the rest of the right half is the camera
         float fx = Math.min(w - m - rFace - off, w - bar / 2), fy = ly;
         addFace(fx, fy, rFace, off, rSmall);
-        add(BUTTON, R3, ROUND, 3, Math.min(w - m - rSmall, fx + off), h - m - rSmall, rSmall, "R3", "R3");
+        if (showR3())
+            add(BUTTON, R3, ROUND, 3, Math.min(w - m - rSmall, fx + off), h - m - rSmall, rSmall, "R3", "R3");
+        aimIndex = -1;
+        if (!vehicleLayout)
+            aimIndex = add(BUTTON, 0, ROUND, 3, Math.min(w - m - rSmall, fx + off) - 2.8f * rSmall, h - m - rSmall, rSmall * 1.15f, "AIM", "AIM");
         // the right stick (Camera: floating stick; its rest place), low on the right inside the face buttons
         stickIndex[1] = -1;
         if (camera != CAMERA_DRAG) {
@@ -622,10 +677,15 @@ final class TouchControls extends View {
         float px = m + rPad + 4 * d, sx = px + rPad * 1.1f, sy = h - m - rStick;
         stickIndex[0] = add(STICK, 0, ROUND, 0, sx, sy, rStick, "", "LSTICK");
         add(DPAD, UP | DOWN | LEFT | RIGHT, ROUND, 1, px, row + rPad, rPad, "", "DPAD");
-        add(BUTTON, L3, ROUND, 0, m + rSmall, h - m - rSmall, rSmall, "L3", "L3");
+        if (extraButtons == EXTRA_BOTH)
+            add(BUTTON, L3, ROUND, 0, m + rSmall, h - m - rSmall, rSmall, "L3", "L3");
         float fx = w - m - rFace - off, fy = row + off + rFace;
         addFace(fx, fy, rFace, off, rSmall);
-        add(BUTTON, R3, ROUND, 3, w - m - rSmall, h - m - rSmall, rSmall, "R3", "R3");
+        if (showR3())
+            add(BUTTON, R3, ROUND, 3, w - m - rSmall, h - m - rSmall, rSmall, "R3", "R3");
+        aimIndex = -1;
+        if (!vehicleLayout)
+            aimIndex = add(BUTTON, 0, ROUND, 3, w - m - rSmall - 2.8f * rSmall, h - m - rSmall, rSmall * 1.15f, "AIM", "AIM");
         stickIndex[1] = -1;
         if (camera == CAMERA_STICK) {
             float rr = rStick * 0.9f;
@@ -1059,6 +1119,10 @@ final class TouchControls extends View {
             float dx = (x - slotX[s]) * k, dy = (y - slotY[s]) * k;
             if (dx != 0 || dy != 0)
                 nativeLook(dx, dy);
+            if (gestures != null)
+                gestureCam(gestures.camMove(slotId[s], x, y, eventTime));
+        } else if (t == WEAPON) {
+            gestureWeaponTrack(s, x, y);
         } else if (t >= 0 && kind[t] == BUTTON) {
             // a finger slides onto a neighbour (Square to Cross), lets go off them, and presses again when back on one
             int b = hitButton(x, y);
@@ -1094,6 +1158,12 @@ final class TouchControls extends View {
     private void release(int s) {
         if (s < 0)
             return;
+        if (gestures != null) {
+            if (slotTarget[s] == CAMERA)
+                gestureCam(gestures.camUp(slotId[s], slotX[s], slotY[s], eventTime));
+            else
+                gestures.otherUp();
+        }
         for (int k = 0; k < 2; k++)
             if (s == stickSlot[k]) {
                 stickSlot[k] = -1;
@@ -1124,7 +1194,11 @@ final class TouchControls extends View {
                 t = IGNORED;
             } else if (x >= getWidth() / 2f || (portraitLayout && y < frame.bottom)) {
                 // the free right half (upright: the whole picture): the floating right stick under the thumb, or the drag
-                if (camera != CAMERA_STICK)
+                if (inWeaponBox(x, y)) {
+                    t = WEAPON;
+                    wsX[s] = x;
+                    wsY[s] = y;
+                } else if (camera != CAMERA_STICK)
                     t = CAMERA;
                 else if (stickSlot[1] < 0 && stickIndex[1] >= 0) {
                     t = stickIndex[1];
@@ -1148,6 +1222,14 @@ final class TouchControls extends View {
             cruiseOn = !cruiseOn && look; // the accelerator lock: Cross held until Brake or a second tap
             Log.i("vcs", "[touch] accelerator lock " + (cruiseOn ? "on" : "off"));
         }
+        if (t >= 0 && t == aimIndex)
+            toggleAim(look);
+        if (gestures != null) { // the camera fingers go to the gesture detector, every other finger just counts
+            if (t == CAMERA)
+                gestureCam(gestures.camDown(id, x, y, eventTime));
+            else
+                gestures.otherDown();
+        }
         slotId[s] = id;
         slotTarget[s] = t;
         slotBits[s] = t >= 0 && kind[t] == BUTTON ? bits[t] : 0;
@@ -1165,6 +1247,7 @@ final class TouchControls extends View {
         if (editing)
             return editTouch(e);
         int act = e.getActionMasked();
+        eventTime = e.getEventTime();
         switch (act) {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_POINTER_DOWN: {
@@ -1299,6 +1382,67 @@ final class TouchControls extends View {
         releaseAll();
     }
 
+    // ---- [android] gestures (the timing is in TouchGestures; this is what they do) ----
+
+    /** Free aim on / off: the AIM button's and the two-finger tap's one code path */
+    private void toggleAim(boolean look) {
+        aimOn = !aimOn && look; // free aim: R1 + L3 held until a second tap, a vehicle or a menu
+        Log.i("vcs", "[touch] free aim " + (aimOn ? "on" : "off"));
+    }
+
+    private boolean onFoot() {
+        return !vehicleLayout && (gameState & STATE_IN_VEHICLE) == 0;
+    }
+
+    /** What the detector found for a camera finger: Circle held for a double-tap, free aim for a two-finger tap. Both
+     *  only while the game takes the pad (no menu, no cutscene) */
+    private void gestureCam(int ev) {
+        if (ev == 0)
+            return;
+        boolean look = nativeLookWanted();
+        if ((ev & TouchGestures.EV_FIRE_ON) != 0) {
+            if (gestDtapFire && look) {
+                gestFire = true;
+                Log.i("vcs", "[touch] double-tap: fire held");
+            }
+        }
+        if ((ev & TouchGestures.EV_FIRE_OFF) != 0)
+            gestFire = false;
+        if ((ev & TouchGestures.EV_TWO_FINGER_TAP) != 0 && gestTwoFingerAim && look && onFoot()) {
+            Log.i("vcs", "[touch] two-finger tap");
+            toggleAim(look);
+        }
+    }
+
+    /** A finger on the weapon box (the right part of the HUD's top-right cluster, with a generous margin): right is the
+     *  next weapon, left the previous; a clearly vertical move turns it into a camera drag. Only on foot. */
+    private boolean inWeaponBox(float x, float y) {
+        if (!gestWeaponSwipe || hudMoney == null || editing || !onFoot())
+            return false;
+        float pad = 12 * getResources().getDisplayMetrics().density;
+        float l = hudMoney.left + hudMoney.width() * 0.4f - pad;
+        return x >= l && x <= hudMoney.right + pad && y >= hudMoney.top - pad && y <= hudMoney.bottom + pad;
+    }
+
+    private void gestureWeaponTrack(int s, float x, float y) {
+        float dp = getResources().getDisplayMetrics().density;
+        int d = TouchGestures.swipeDir(x - wsX[s], y - wsY[s], dp);
+        if (d == TouchGestures.SWIPE_NEXT || d == TouchGestures.SWIPE_PREV) {
+            slotTarget[s] = IGNORED; // once per touch
+            if (onFoot() && nativeLookWanted()) {
+                // the PS2 pad's own weapon change: R2 next, L2 previous (the mouse wheel presses them: vcs_input.cpp)
+                gestPulse = d == TouchGestures.SWIPE_NEXT ? R2 : L2;
+                removeCallbacks(pulseOff);
+                postDelayed(pulseOff, WEAPON_PULSE_MS);
+                Log.i("vcs", "[touch] weapon swipe: " + (d == TouchGestures.SWIPE_NEXT ? "next" : "previous"));
+            }
+        } else if (d == TouchGestures.SWIPE_VERTICAL) {
+            slotTarget[s] = CAMERA; // not a weapon swipe: a camera drag from here
+            if (gestures != null)
+                gestures.otherUp();
+        }
+    }
+
     /** [android] The look latch (docs/ANDROID.md "Controls extras"): in the vehicle layout a quick tap on L2 or R2 keeps
      *  it held (looking left / right: a drive-by is then a drag to aim and Circle to fire, two fingers instead of three);
      *  a tap on it again or a press of the other lets go. A hold works as before (L2 + R2 held: look behind). The bit
@@ -1339,7 +1483,7 @@ final class TouchControls extends View {
             if (t < 0 || t >= n)
                 continue;
             b |= slotBits[s];
-            now[t] |= kind[t] == STICK || t == cruiseIndex ? 1 : slotBits[s]; // what each control shows held
+            now[t] |= kind[t] == STICK || t == cruiseIndex || t == aimIndex ? 1 : slotBits[s]; // what each control shows held
         }
         boolean on = active();
         if (!on) {
@@ -1359,6 +1503,12 @@ final class TouchControls extends View {
             cruiseOn = false;
         if (cruiseOn)
             b |= CROSS;
+        if (aimOn && (!on || vehicleLayout || (gameState & STATE_IN_VEHICLE) != 0))
+            aimOn = false;
+        if (aimOn)
+            b |= R1 | L3;
+        if (on && aimIndex >= 0 && aimOn)
+            now[aimIndex] |= 1;
         b |= lookLatch(on, raw, pressedNow, releasedNow);
         if (on && crossIndex >= 0 && (b & CROSS) != 0)
             now[crossIndex] |= CROSS;
@@ -1382,6 +1532,11 @@ final class TouchControls extends View {
                 if ((b & 1 << bit) != 0)
                     out |= 1 << remap[bit];
             b = out;
+        }
+        if (on) { // the gestures' own presses, after the remap: the game's real buttons
+            if (gestFire)
+                b |= CIRCLE;
+            b |= gestPulse;
         }
         float lx = on ? stickX[0] : 0, ly = on ? stickY[0] : 0, rx = on ? stickX[1] : 0, ry = on ? stickY[1] : 0;
         if (b != sentButtons || lx != sentLx || ly != sentLy || rx != sentRx || ry != sentRy || on != sentOn) {
@@ -2078,6 +2233,33 @@ final class TouchControls extends View {
         drawOp = 1f;
     }
 
+    /** Triangle shows a car door instead of its glyph: on foot, an enterable vehicle in reach, no menu over the game (the
+     *  layout editor keeps the plain glyph so the button stays recognisable) */
+    static boolean showDoorIcon(int gameState, boolean editing) {
+        return !editing && (gameState & STATE_NEAR_VEHICLE) != 0 && (gameState & (STATE_IN_VEHICLE | STATE_PAUSE_MENU
+                | STATE_SETTINGS_MENU | STATE_TRAINER)) == 0;
+    }
+
+    /** A car door seen from the side, drawn by us: the door panel, its window and its handle, inside a box of half-size g */
+    private void drawDoorIcon(Canvas c, float x, float y, float g) {
+        path.reset();
+        path.moveTo(x - g * 0.8f, y + g * 0.85f);
+        path.lineTo(x - g * 0.8f, y - g * 0.15f);
+        path.lineTo(x - g * 0.45f, y - g * 0.85f);
+        path.lineTo(x + g * 0.8f, y - g * 0.85f);
+        path.lineTo(x + g * 0.8f, y + g * 0.85f);
+        path.close();
+        c.drawPath(path, line);
+        path.reset(); // the window
+        path.moveTo(x - g * 0.38f, y - g * 0.12f);
+        path.lineTo(x - g * 0.2f, y - g * 0.55f);
+        path.lineTo(x + g * 0.45f, y - g * 0.55f);
+        path.lineTo(x + g * 0.45f, y - g * 0.12f);
+        path.close();
+        c.drawPath(path, line);
+        c.drawLine(x + g * 0.05f, y + g * 0.25f, x + g * 0.5f, y + g * 0.25f, line); // the handle
+    }
+
     /** The PS2's colours for its face buttons' symbols */
     private static int faceRgb(int b) {
         switch (b) {
@@ -2112,6 +2294,10 @@ final class TouchControls extends View {
         line.setColor(held ? col(1f, Palette.GLASS) : col(1f, rgb));
         switch (bits[i]) {
             case TRIANGLE:
+                if (showDoorIcon(gameState, editing)) {
+                    drawDoorIcon(c, x, y, g);
+                    break;
+                }
                 path.reset();
                 path.moveTo(x, y - g);
                 path.lineTo(x + g * 0.95f, y + g * 0.7f);

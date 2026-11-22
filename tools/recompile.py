@@ -38,8 +38,14 @@ def _game_from_argv():
     return None
 
 
-if __name__ == "__main__" and _game_from_argv():
-    os.environ["VCS_TOOLS_GAME"] = _game_from_argv()
+if __name__ == "__main__":
+    # [android] No --game: the disc's own boot file (SYSTEM.CNF) names the game; --game against the disc is an error
+    import preflight
+    _game, _error = preflight.game_from_args(sys.argv[1:])
+    if _error:
+        sys.exit("[recompile] " + _error)
+    if _game:
+        os.environ["VCS_TOOLS_GAME"] = _game
 import toolchain as tc  # noqa: E402
 
 ELF = os.path.join(tc.BUILD, "elf", "SLUS_215.90")
@@ -297,17 +303,21 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("iso", nargs="?", help="your Vice City Stories (USA) disc image (--game lcs: Liberty City Stories)")
     ap.add_argument("-v", "--verbose", action="store_true", help="show all build output")
-    ap.add_argument("--game", default="vcs", choices=("vcs",) + tuple(OTHER_GAMES), help="vcs (default), or lcs")
+    ap.add_argument("--game", choices=("vcs",) + tuple(OTHER_GAMES),
+                    help="vcs or lcs (default: the game the disc is, read from its SYSTEM.CNF; else vcs)")
     ap.add_argument("--out", help="with --game lcs: the folder for its generated code (default generated-lcs/; "
                                   "not generated/)")
     ap.add_argument("--check", action="store_true", help="only say whether the generated code is current (exit 0) or not (1)")
     a = ap.parse_args()
+    a.game = a.game or tc.GAME  # [android] tc.GAME: the game picked from the disc above (else vcs)
     if a.out and a.game == "vcs":
         ap.error("--out is for --game lcs (VCS's generated code is generated/)")
     if a.check:
         why = why_recompile(a.game, generated_root(a.game, a.out))
         print("[recompile] " + ("needed: " + why if why else "generated code is current"))
         sys.exit(1 if why else 0)
+    import preflight  # [android] Windows: the build tree's longest path against the 260-character limit
+    preflight.require_short_path(tc.ROOT, "recompile", build_dir=tc.BUILD)
     tc.fix_future_files()  # as build.py: else Ninja re-runs CMake until it gives up
     recompile(a.iso, verbose=a.verbose, game=a.game, out_dir=a.out)
 

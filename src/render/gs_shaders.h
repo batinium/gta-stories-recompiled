@@ -13,8 +13,9 @@ namespace render
         rhi::ShaderCode litVS;        // native VCS lit / skinned models
         static constexpr int kSampleModes = 7;
         // [SAMPLE_MODE][dual]: the GS pixel shader built for one way of reading the texture (gs_draw.hlsl; 0: every way,
-        // chosen per draw); dual: + the blend factor as the second output (Src1Alpha blending)
-        rhi::ShaderCode drawPS[kSampleModes][2];
+        // chosen per draw); dual: + the blend factor as the second output (Src1Alpha blending); [android] dual 2: the
+        // blend factor in the colour's alpha (SrcAlpha blending, no dual-source blending: ps2xRuntime gs_blend.h)
+        rhi::ShaderCode drawPS[kSampleModes][3];
         rhi::ShaderCode quadVS;
         rhi::ShaderCode blitPS;
         rhi::ShaderCode fillColorPS;
@@ -24,10 +25,11 @@ namespace render
         rhi::ShaderCode uiVS;         // Dear ImGui through the RHI (render/ui_renderer.cpp)
         rhi::ShaderCode uiPS;
         // drawPS without the depth output (SHADER_DEPTH=0): the rasterised depth, early depth rejection on
-        rhi::ShaderCode drawPSNoDepth[kSampleModes][2];
+        rhi::ShaderCode drawPSNoDepth[kSampleModes][3];
         rhi::ShaderCode dwBackdropPS; // [gta-recomp] dual world: the other game's picture with a depth (gs_util.hlsl)
         rhi::ShaderCode dwFogSlicePS; // [tone] the background game's far fog as alpha: one slice of it (gs_util.hlsl)
         rhi::ShaderCode dwUnfogPS;    // [tone] the picture with its fog colour taken out where the alpha says fog
+        rhi::ShaderCode drawPointVS;  // [android] drawVS with a point size output (Vulkan; empty elsewhere: use drawVS)
     };
 
     // The backend's shaders (empty for the null backend, which never runs them).

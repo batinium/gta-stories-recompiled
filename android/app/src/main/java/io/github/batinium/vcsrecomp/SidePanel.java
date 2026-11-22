@@ -849,7 +849,7 @@ final class SidePanel extends FrameLayout {
             controls.openSettings();
         });
         header("Camera");
-        prefChoice(tp, "camera", TouchControls.CAMERA_STICK, "Camera", new int[] {0, 1}, TouchControls.CAMERA_NAMES,
+        prefChoice(tp, "camera", TouchControls.CAMERA_DRAG, "Camera", new int[] {0, 1}, TouchControls.CAMERA_NAMES,
                 ctl).help = "Right half: a stick under the thumb, or a drag";
         setting("mouse.camera");
         setting("mouse.sensitivity");
@@ -857,6 +857,10 @@ final class SidePanel extends FrameLayout {
         setting("pad.invert_x");
         setting("pad.invert_y");
         setting("mouse.car_sensitivity");
+        header("Gestures");
+        prefToggle(tp, "gesture_dtap_fire", true, "Double-tap fires", "Tap twice on the camera area, hold the second: Circle", ctl, false);
+        prefToggle(tp, "gesture_two_finger_aim", true, "Two-finger aim", "Tap with two fingers on the camera area: free aim on / off", ctl, false);
+        prefToggle(tp, "gesture_weapon_swipe", true, "Weapon swipe", "Swipe on the weapon icon: right next, left previous", ctl, false);
         header("Gyro");
         if (!Gyro.available(c))
             note("No gyroscope on this phone.");
@@ -881,6 +885,8 @@ final class SidePanel extends FrameLayout {
         prefToggle(tp, "cruise_button", true, "Accelerator lock", "Holds Gas until Brake", ctl, false);
         prefToggle(tp, "look_latch", true, "Look latch", "Tap L2 / R2 to keep looking (drive-by), tap again to stop", ctl, false);
         prefToggle(tp, "sprint_toggle", false, "Sprint toggle", "Tap Cross to sprint, tap again to stop", ctl, false);
+        prefChoice(tp, "extra_buttons", TouchControls.EXTRA_HIDDEN, "L3 / R3 buttons", new int[] {0, 1, 2},
+                TouchControls.EXTRA_NAMES, ctl).help = "Hidden: AIM replaces L3; remap a button to use them";
         header("Aim and prompts");
         setting("pad.free_aim");
         if (mouseConnected()) // only with a mouse: the overlay is a gamepad, its R1 is pad.free_aim

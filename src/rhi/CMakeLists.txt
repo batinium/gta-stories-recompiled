@@ -64,6 +64,15 @@ if(VCS_RHI_VULKAN)
     if(ANDROID) # [android] the stats overlay's GPU time a frame (src/android/stats.cpp, in vcs_platform)
         target_link_libraries(vcs_rhi PRIVATE vcs_platform)
     endif()
+    # [android] custom GPU drivers through libadrenotools (src/android/gpu_driver.h, src/android/adrenotools.cmake)
+    if(ANDROID AND VCS_GPU_DRIVERS)
+        target_sources(vcs_rhi PRIVATE "${CMAKE_SOURCE_DIR}/src/android/gpu_driver.cpp")
+        target_compile_definitions(vcs_rhi PRIVATE VCS_GPU_DRIVERS=1)
+        target_link_libraries(vcs_rhi PRIVATE vcs_adrenotools)
+        # the hook libraries are built with every APK (Gradle packages every shared library of the build)
+        add_dependencies(vcs_rhi vcs_at_main_hook vcs_at_file_redirect_hook vcs_at_gsl_alloc_hook)
+        message(STATUS "Vulkan: custom GPU drivers (libadrenotools) built in (VCS_GPU_DRIVERS)")
+    endif()
 
     # [android] Lossless Scaling frame generation (docs/ANDROID.md "Frame generation (LSFG)"): vulkan/lsfg is
     # GPL-3.0-or-later (lsfg/LICENSE.md). The shaders come from the user's own Lossless.dll at run

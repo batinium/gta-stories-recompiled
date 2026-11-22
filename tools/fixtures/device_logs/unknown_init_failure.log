@@ -1,0 +1,7 @@
+# expect: tested=no failure=generic explain=turn on Compatibility mode
+[log] game process 1 started 2026-11-22 10:00:00
+[android] game start, 0 argument(s)
+[rhi] graphics cards, fastest first: Adreno (TM) 730 [1]; using Adreno (TM) 730
+[rhi] gpu: Adreno (TM) 730, vendor 0x5143 device 0x43050a01, type 1
+Failed to initialize runtime
+[android] game exit 5

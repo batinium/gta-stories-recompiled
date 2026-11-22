@@ -176,6 +176,8 @@ namespace vcs_android
         int state = STATE_GAME;
         if (tr::ready() && tr::inVehicle())
             state |= STATE_IN_VEHICLE;
+        else if (tr::ready() && tr::nearVehicle())
+            state |= STATE_NEAR_VEHICLE;
         // [lcs] LCS's free aim and pause menu (vcs::aim / vcs::frontend read VCS's memory)
         const bool lcs = game::isLcs();
         // [lcs] and LCS's drive-by look (L2 / R2 with a drive-by weapon: the mouse / gyro aim it, lcs_driveby.h); VCS's

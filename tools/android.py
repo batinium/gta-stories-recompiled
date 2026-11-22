@@ -19,8 +19,15 @@
     python3 tools/android.py run                 # start the app and follow its log (adb logcat -s vcs SDL)
     python3 tools/android.py all [--release]     # build + install + run
     python3 tools/android.py log                 # only the log
+    python3 tools/android.py preflight           # [android] check the tools (SDK, NDK, CMake, glslang, git, JDK) and the
+                                                 # path length; build / build-game run it first
+    python3 tools/android.py setup [--apk] [--yes] [--accept-android-licenses] [--dry-run]
+                                                 # [android] fetch what preflight finds missing (tools/toolchain_fetch.py:
+                                                 # asks first, into ~/.vcs-toolchain; --dry-run: URLs and sizes only)
 
-Needs the Android SDK (ANDROID_HOME, else ~/Library/Android/sdk, ~/Android/Sdk or %LOCALAPPDATA%\\Android\\Sdk) with
+`setup` fetches whatever of the following is missing (not Python, and git only on Windows).
+Needs the Android SDK (ANDROID_HOME, else ~/Library/Android/sdk, ~/Android/Sdk, %LOCALAPPDATA%\\Android\\Sdk or the
+toolchain folder ~/.vcs-toolchain/android-sdk) with
 NDK 28.2.13676358 and CMake 3.31.5 (sdkmanager "ndk;28.2.13676358" "cmake;3.31.5"), git and glslangValidator (the
 Vulkan shaders: VCS_GLSLANG, PATH, the Vulkan SDK's bin, or the copy the macOS build makes); build also needs a JDK 17+
 and a POSIX sh for FFmpeg's configure (the movies; built once into build/android/ffmpeg - on Windows Git for Windows'
@@ -71,14 +78,14 @@ def cmake_path(path):
 
 
 def sdk_dir():
-    local = os.environ.get("LOCALAPPDATA")
-    for d in (os.environ.get("ANDROID_HOME"), os.environ.get("ANDROID_SDK_ROOT"),
-              os.path.expanduser("~/Library/Android/sdk"), os.path.expanduser("~/Android/Sdk"),
-              os.path.join(local, "Android", "Sdk") if local else None):
-        if d and os.path.isdir(d):
-            return d
-    fail("no Android SDK: set ANDROID_HOME (Android Studio puts it in ~/Library/Android/sdk, ~/Android/Sdk or "
-         "%LOCALAPPDATA%\\Android\\Sdk)")
+    """The SDK the build uses: tools/preflight.py's choice (ANDROID_HOME, ANDROID_SDK_ROOT, Android Studio's folders,
+    the toolchain folder tools/toolchain_fetch.py fills; the first with NDK + CMake wins)."""
+    import preflight
+    found = preflight.find_sdk(preflight.Host())
+    if found:
+        return found
+    fail("no Android SDK: python3 tools/android.py setup fetches one (or set ANDROID_HOME; Android Studio puts it in "
+         "~/Library/Android/sdk, ~/Android/Sdk or %LOCALAPPDATA%\\Android\\Sdk)")
 
 
 def adb():
@@ -106,17 +113,13 @@ def fetch_sdl():
 
 
 def glslang():
-    found = os.environ.get("VCS_GLSLANG") or shutil.which("glslangValidator") or shutil.which("glslang")
-    if not found and os.environ.get("VULKAN_SDK"):  # the LunarG Vulkan SDK (its Windows installer sets VULKAN_SDK)
-        found = exe(os.path.join(os.environ["VULKAN_SDK"], "Bin" if WINDOWS else "bin", "glslangValidator"))
-    if not found or not os.path.exists(found):
-        # the macOS build's own copy (tools/shader_tools.py, built by its first configure)
-        built = exe(os.path.join(os.environ.get("VCS_BUILD_DIR") or os.path.join(ROOT, "build"), "build-tools",
-                                 "shader-tools", "build", "bin", "glslang"))
-        found = built if os.path.exists(built) else None
+    """VCS_GLSLANG, the Vulkan SDK's, the macOS build's own copy (tools/shader_tools.py), PATH, or the toolchain
+    folder's (tools/preflight.py find_glslang: the same order preflight checks)."""
+    import preflight
+    found = preflight.find_glslang(preflight.Host(), ROOT)
     if not found:
-        fail("no glslangValidator: brew install glslang / apt install glslang-tools / on Windows the Vulkan SDK "
-             "(vulkan.lunarg.com), or VCS_GLSLANG=<path>")
+        fail("no glslangValidator: python3 tools/android.py setup fetches it (or brew install glslang / apt install "
+             "glslang-tools / the Vulkan SDK on Windows, or VCS_GLSLANG=<path>)")
     return found
 
 
@@ -475,7 +478,7 @@ def start():
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["build", "build-game", "push-game", "install", "run", "all", "log", "env"])
+    p.add_argument("command", choices=["build", "build-game", "push-game", "install", "run", "all", "log", "env", "preflight", "setup"])
     p.add_argument("--release", action="store_true", help="the release APK, signed with your key (VCS_SIGN_STORE, VCS_SIGN_ALIAS, VCS_SIGN_PASS)")
     p.add_argument("--personal", action="store_true", help="build: the game inside the APK (a personal build, never shared)")
     p.add_argument("--stories", action="store_true",
@@ -485,7 +488,24 @@ def main():
                    help="[lcs] build-game / push-game / --personal: which game (default vcs; lcs = Liberty City Stories)")
     p.add_argument("--generated", help="the game's generated EE code (default generated/ee; generated-lcs/ee for lcs)")
     p.add_argument("pairs", nargs="*", help="env: NAME=value switches for files/env.txt (none: show it; clear: delete it)")
+    import toolchain_fetch  # [android] setup: fetch the missing tools into the toolchain folder
+    toolchain_fetch.add_arguments(p)
     a = p.parse_args()
+    toolchain_fetch.apply_env()  # [android] a fetched toolchain (JDK, glslang, MinGit) is used without any setting
+    if a.command == "setup":
+        sys.exit(toolchain_fetch.run_from_args(a))
+    if a.command in ("preflight", "build", "all", "build-game"):
+        # [android] everything missing, in one message, before the long steps (tools/preflight.py); the JDK only
+        # matters to the APK
+        import preflight
+        apk = a.command != "build-game"
+        preflight.require_tools(apk=apk, root=ROOT)
+        preflight.require_short_path(ROOT, "apk" if apk else "build-game",
+                                     generated_dir=None if apk else generated_dir(a.game, a.generated))
+        if a.command == "preflight":
+            print("[android] preflight ok: Python, SDK, NDK %s, CMake %s, glslangValidator, git%s; path length fine" % (
+                NDK_VERSION, CMAKE_VERSION, ", JDK" if apk else ""))
+            return
     if a.command in ("build", "all"):
         build(a.release, a.personal, a.game, a.generated, a.stories)
     if a.command == "build-game":

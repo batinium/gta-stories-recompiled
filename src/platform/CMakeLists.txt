@@ -71,6 +71,7 @@ endif()
 if(ANDROID AND NOT VCS_ANDROID_STORIES_GUEST)
     target_sources(vcs_platform PRIVATE "${CMAKE_SOURCE_DIR}/src/android/touch_controls.cpp"
                                         "${CMAKE_SOURCE_DIR}/src/android/stats.cpp"
+                                        "${CMAKE_SOURCE_DIR}/src/android/diagnostics.cpp" # [diag] heartbeat + watchdog
                                         "${CMAKE_SOURCE_DIR}/src/android/gamepads.cpp" # [android] the controller chooser
                                         "${CMAKE_SOURCE_DIR}/src/android/power.cpp")
 endif()

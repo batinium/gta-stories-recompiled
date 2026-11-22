@@ -122,15 +122,40 @@ Liberty City Stories and Vice City Stories on a phone, with touch controls (side
 </tr>
 </table>
 
-- **Needs:** Android 13+, ARM64, Vulkan 1.3 (a recent Adreno GPU is recommended; others are untested), about 3 GB free per game.
+- **Needs:** Android 13+, ARM64, Vulkan 1.3, about 3 GB free per game.
+- **Tested on Snapdragon (Adreno) phones only.** Other chips (Mali, Xclipse, PowerVR, ...) are welcome but untested: if you try one,
+  please send the log from *About > Log and crash report*. It lists your chip, GPU and Vulkan features, which is what
+  is needed to add support for your device.
+- **Tested phones** (reports, not a guarantee):
+
+  | Device | GPU | Result |
+  |---|---|---|
+  | Honor PNM-N49 (Snapdragon SM8850), Android 16 | Adreno 840, Vulkan 1.4 | development phone: both games reach gameplay |
+  | Snapdragon 8 Elite Gen 5 phone (user report) | Adreno | both games run |
+  | Retroid Pocket 6, Android 13 (user report) | Adreno | LCS plays; black bar under the game with 3-button navigation (gesture navigation is fine) |
+  | AYANEO Pocket FIT, Android 14 | Adreno 750 (older driver) | LCS starts; VCS shows a black screen with sound (graphics device lost) |
+  | Xiaomi (MediaTek, Android 16) | Mali-G720 | did not start before 0.3.2 (needed dual-source blending the Mali driver lacks; 0.3.2 has a single-source fallback, untested on Mali: please report) |
+  | Lenovo tablet, Snapdragon 8+ Gen 1 | Adreno, stock driver Vulkan 1.1 | does not start (needs Vulkan 1.3) |
+
+  Other devices are untested: please report yours with the log from *About > Log and crash report*.
 - **The APK has no game inside.** One app holds both games (switch LCS / VCS at the top); each has its own disc, game
   library ("code pack") and saves.
 - **Get a game:** pick your own disc image, then either
   - build the code pack **on the phone** (*Disc > Build code pack on this phone*, **experimental**): downloads Termux
     clang/lld once (~70 MB), takes 5 to 30+ minutes, needs ~1 GB free and 6 GB+ RAM, keep it charging. Tested only on an
     Android emulator so far, **not yet on a real phone**; or
-  - build it on a PC (`python3 tools/recompile.py <iso>`, then `python3 tools/android.py build-game [--game lcs]`) and
-    import it (*Disc > Import game library*).
+  - build it on a PC and import it (*Disc > Import game library*): double-click `tools\build-android-pack.bat`
+    (Windows) or `tools/build-android-pack.command` (macOS) and drag your disc into the window, or use the launcher's
+    *Prepare for Android*. It reads the game from the disc and leaves `android-export/<game>/libvcs_game.so.gz`.
+    **No manual SDK install needed:** what the build lacks (the Android NDK and CMake, a JDK for Google's installer,
+    glslang, and git on Windows) is fetched by `python3 tools/android.py setup` (Windows: `python tools\android.py
+    setup`), which the scripts offer by themselves: it lists each download and its size (about 1.1 GB, mostly the
+    NDK), asks first, and puts everything in one folder, `~/.vcs-toolchain` (no admin rights). You accept Google's
+    Android SDK licences yourself. This project ships none of these tools: they come from their official sources.
+    Only Python 3 must be there already (and on a Mac Apple's Command Line Tools: `xcode-select --install`).
+    By hand: `python3 tools/recompile.py <iso>` then `python3 tools/android.py build-game --game lcs` (VCS: `--game
+    vcs` or nothing). On Windows unpack the release into a **short folder** such as `C:\gta` (a long path hits
+    Windows' 260-character limit). Building on the PC rather than the phone avoids heat and throttling.
 
   A code pack is made from your own disc: never share it.
 - **Status:** both games reach gameplay on a test phone. Liberty City items **not yet checked on a phone**: sound, boot
@@ -143,6 +168,9 @@ Liberty City Stories and Vice City Stories on a phone, with touch controls (side
 - **Updating:** a release APK installs over a release APK (same signing key). If you installed a build you made yourself,
   export your saves, uninstall it once, then install the release ([Player's guide](docs/PLAYERS_GUIDE.md#1-install-the-app)).
 - Frame generation (`Lossless.dll`) is not shipped: bring your own.
+- **Custom GPU driver (Adreno only):** *Settings > Custom GPU driver* loads a Vulkan driver package you download yourself
+  (e.g. Mesa Turnip, as made for emulators) through libadrenotools; it may help Adreno phones with old or Vulkan 1.1 stock
+  drivers. No driver is shipped; if the game fails with one, the system driver comes back by itself.
 
 Steps and status: [Player's guide](docs/PLAYERS_GUIDE.md#android), [docs/ANDROID.md](docs/ANDROID.md),
 [docs/PHONE_BUILD.md](docs/PHONE_BUILD.md).
@@ -195,8 +223,8 @@ Planned, not done yet:
   packs.
 - **Android, both cities:** crossing between the cities (switched off for now), the cross-game cars and the Vic/Toni
   outfit packs on the phone.
-- **PC launcher:** a "Build for Android" button that builds the phone code packs. Today that takes the Android SDK/NDK
-  and the command line.
+- **PC launcher:** fetching the Android build's tools from the *Prepare for Android* button itself (today it names the
+  setup command; the scripts in `tools/` offer the fetch).
 - **GTA Stories:** the far city can freeze for a moment and then jump while the other game loads an area.
 - **Mac:** GTA Stories (both cities) mode.
 
@@ -225,7 +253,7 @@ More: [CONTRIBUTING.md](CONTRIBUTING.md), [docs/LCS.md](docs/LCS.md), [docs/STOR
 - The GTA modding community's file-format references ([gtamods.com](https://gtamods.com)).
 - Mods shown: *Ferrari 458 Italia - Undercover Cop* by N4SPEED, *Maibatsu Sanchez*, *Peugeot 103*, *GTA 3 HD Weapons*,
   *M4V1DD* and *FN P90*, by their authors; used only to test the converter.
-- Libraries: FFmpeg, SDL3, volk, Vulkan Memory Allocator, Dear ImGui, sse2neon, FreeType; frame generation from
+- Libraries: FFmpeg, SDL3, volk, Vulkan Memory Allocator, Dear ImGui, sse2neon, FreeType, libadrenotools (BSD-2-Clause); frame generation from
   [Eden](https://git.eden-emu.dev/eden-emu/eden) / [lsfg-vk](https://github.com/PancakeTAS/lsfg-vk).
 
 This is an **unofficial fan project**, not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.
@@ -262,4 +290,4 @@ Questions and ideas: [Discussions](https://github.com/batinium/gta-stories-recom
 [issue forms](https://github.com/batinium/gta-stories-recompiled/issues/new/choose). Contributing:
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-**Assisted with AI coding agent Claude Opus 5.5**
+**AI assistance.** I use Claude (Anthropic's AI assistant, through Claude Code) to help write and review code and docs for this project. I read and test what it produces, and the decisions are mine.

@@ -1,0 +1,6 @@
+# expect: tested=no failure=missing explain=offers 1.1 explain=update the system
+[log] game process 1 started 2026-11-22 10:00:00
+[android] game start, 0 argument(s)
+[rhi] graphics cards, fastest first: Adreno (TM) 619 [1] (not usable: needs Vulkan 1.3 - this driver has 1.1); using none
+Failed to initialize runtime
+[android] game exit 5

@@ -128,6 +128,7 @@ namespace launcher
         void startBuild(); // the shown game's
         void startBuildFor(const std::string &game); // [storiesbuild] "lcs" or "vcs": that game's, its disc from knownDisc()
         void startInstallTools();
+        void startAndroidPack(); // [android] "Prepare for Android": tools/android_pack.py (the shown disc -> android-export/<game>/)
         void startBackup();
         void startRestore(const std::string &backup);
         void startBackupList();

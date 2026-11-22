@@ -42,6 +42,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
     private static final int PICK_LIBRARY = 2;
     private static final int PICK_LSFG = 3;
     private static final int PICK_LSFG_FOLDER = 4;
+    private static final int PICK_GPU_DRIVER = 5; // [gpu-driver]
     private static final int SAVE_REPORT = 40; // [report]
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -50,7 +51,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
     private MenuView menu;
     private boolean busy;
     // a running task's line, or the last failure, shown in place of the item's state
-    private String discNote, libraryNote, lsfgNote;
+    private String discNote, libraryNote, lsfgNote, driverNote;
     private boolean autoFindTried;
     // read in refresh(), so drawing never touches the disk
     private VcsIni ini;
@@ -81,6 +82,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         // the safe area: system bars and the camera cutout, whichever screen of the foldable is in use
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets i = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            Immersive.log(this, "launcher insets", insets);
             menu.setInsets(i.left, i.top, i.right, i.bottom);
             return WindowInsets.CONSUMED;
         });
@@ -130,6 +132,22 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         if (gameRunning)
             return "The game is running: quit it first to switch games.";
         return null;
+    }
+
+    /** A row's full explanation (MenuView: long press, X, the row's "i"): a plain, scrolling dialog */
+    @Override
+    public void showHelp(String title, String text) {
+        android.widget.TextView t = new android.widget.TextView(this);
+        t.setText(text);
+        t.setTextSize(15);
+        t.setPadding(48, 24, 48, 0);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(t);
+        Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(title)
+                .setView(sv)
+                .setPositiveButton("OK", null)
+                .show());
     }
 
     @Override
@@ -311,7 +329,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 .help(() -> bothMode()
                         ? (storiesReady() ? "Liberty City in front, Vice City on the horizon east of Portland, in one program. "
                                 + "Experimental: the side panel does nothing in this mode." : storiesNeedNote())
-                        : ready() ? null : "Choose your disc under Disc first.")
+                        : readinessDetail())
                 .enabled(() -> (bothMode() ? storiesReady() : ready()) && !busy)
                 .action(() -> { if (bothMode()) playStories(); else play(false); }));
         // [lcs] the game Play starts (the header's switch too): each its own disc, library, saves and colours
@@ -328,7 +346,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 .enabled(() -> gameSwitchNote() == null && !busy)
                 .choice(gameNames, this::gameIndex, this::pickGame));
         play.add(new MenuView.Item("Test graphics")
-                .value(() -> "Vulkan, touch and the screen, without the game")
+                .value(() -> "No game: a Vulkan and touch test")
                 .help("The bring-up test: a spinning picture and touch markers. Back leaves it.")
                 .enabled(() -> !busy)
                 .action(() -> play(true)));
@@ -339,31 +357,34 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 .value(this::discState)
                 .help("Your own PS2 disc, USA release (Vice City Stories SLUS-21590 or Liberty City Stories SLUS-21423), "
                         + "as an .iso image. It stays where it is; the app only reads it. Each game keeps its own disc: "
-                        + "picking one switches to its game.")
+                        + "picking one switches to its game. Only these two USA discs work: other regions (PAL, ...), "
+                        + "the PSP versions and other games do not, and the app will say so.")
                 .enabled(() -> !busy && !gameRunning) // [lcs] a disc / library may switch the game
                 .action(() -> pick(PICK_DISC)));
-        disc.add(new MenuView.Item("Import game library (code pack)…")
+        disc.add(new MenuView.Item("Import game library…")
                 .value(this::libraryState)
-                .help("Built on your PC from the same disc (" + GameFiles.GAME_LIBRARY + ", see the Player's guide in "
+                .help(() -> (GameFiles.bundledGame(this) ? "A personal build from your disc is built into this app. "
+                        + "Don't share this APK. " : "") + "Built on your PC from the same disc (" + GameFiles.GAME_LIBRARY + ", see the Player's guide in "
                         + "the project's README), then copied to this phone. The app always keeps its own copy (unlike "
                         + "the disc, it can't be read where it is: Android runs code only from the app's own storage), so "
                         + "you can delete the file afterwards. Each game has its own: importing one switches to its game.")
                 .enabled(() -> !busy && !gameRunning)
                 .action(() -> pick(PICK_LIBRARY)));
         // [phonebuild] the code pack built here from the chosen disc (experimental; PhoneBuild, BuildService)
-        disc.add(new MenuView.Item("Build code pack on this phone (experimental)…")
+        disc.add(new MenuView.Item("Build the library here…")
                 .value(this::phoneBuildState)
-                .help("Makes this game's code pack here, from your disc, instead of on a PC: the app recompiles the "
+                .help("Experimental. Makes this game's code pack here, from your disc, instead of on a PC: the app recompiles the "
                         + "game's executable and compiles it with a compiler it downloads once (Termux's clang, about "
                         + (PhoneBuild.downloadSize(this) >> 20) + " MB). Takes 5-30 minutes and about 1 GB of free space "
                         + "while it runs; keep the phone charging. Tap again while it runs to cancel; a build that stopped "
                         + "goes on where it was.")
                 .visible(() -> !GameFiles.bundledGame(this)) // always tappable: phoneBuild() says why when it can't start
                 .action(this::phoneBuild));
-        disc.add(new MenuView.Item("Delete the code pack compiler")
+        disc.add(new MenuView.Item("Delete the compiler")
                 .visible(() -> BuildService.building == null && PhoneBuild.toolsDir(this).exists())
-                .value(() -> "Termux's clang in the app's folder, " + size(PhoneBuild.treeSize(PhoneBuild.toolsDir(this)))
-                        + ": downloaded again for the next phone build")
+                .value(() -> "Termux's clang, " + size(PhoneBuild.treeSize(PhoneBuild.toolsDir(this))))
+                .help("The compiler the phone build downloaded into the app's folder. It is downloaded again for the "
+                        + "next build on this phone.")
                 .action(() -> {
                     PhoneBuild.deleteTree(PhoneBuild.toolsDir(this));
                     refresh();
@@ -374,9 +395,10 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                         && GameFiles.pushedDisc(this) != null)
                 .value(() -> {
                     File f = GameFiles.pushedDisc(this);
-                    return f == null ? "" : f.getName() + " in the app's folder, " + size(f.length()) + ", not used";
+                    return f == null ? "" : size(f.length()) + " in the app's folder, not used";
                 })
-                .help("A copy of the disc in Android/data (pushed there for testing). The game now reads the disc you "
+                .help(() -> (GameFiles.pushedDisc(this) == null ? "" : GameFiles.pushedDisc(this).getName() + ". ")
+                        + "A copy of the disc in Android/data (pushed there for testing). The game now reads the disc you "
                         + "chose, so this copy only takes space. Asks before deleting.")
                 .enabled(() -> !busy && !gameRunning)
                 .action(this::confirmDeleteCopy));
@@ -390,6 +412,18 @@ public class LauncherActivity extends Activity implements MenuView.Host {
 
         // Settings: the game's vcs.ini, read fresh each time
         MenuView.Category set = menu.category("Settings", MenuView.G_SETTINGS);
+        // [gpu-driver] first in Settings: the untested-phone notice's "Open settings" lands on it (GpuDriver.java)
+        set.add(new MenuView.Item("Custom GPU driver")
+                .value(() -> driverNote != null ? driverNote : GpuDriver.summary(this))
+                .help(() -> GpuDriver.supported(this)
+                        ? "Advanced. Use a Vulkan driver you downloaded yourself (e.g. Mesa Turnip, the .zip packages made "
+                                + "for emulators) instead of the phone's own: can help when the game does not start or the "
+                                + "graphics crash. Qualcomm Adreno GPUs only. If the game fails with it, the system driver "
+                                + "comes back by itself. This app includes no drivers."
+                        : "Only for phones with a Qualcomm Adreno GPU. This phone's GPU (" + DeviceNotice.chip()
+                                + ") cannot load custom drivers; Mali and other GPUs use their system driver.")
+                .enabled(() -> GpuDriver.supported(this) && !busy && !gameRunning)
+                .action(this::gpuDriverMenu));
         String[] presets = {"Balanced", "Authentic (PS2)"};
         set.add(new MenuView.Item("Graphics preset")
                 .value(() -> ini.presetName())
@@ -410,6 +444,18 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         for (VcsIni.Setting s : new VcsIni.Setting[] {VcsIni.SCALE, VcsIni.FPS, VcsIni.TIMING, VcsIni.ASPECT, VcsIni.HUD,
                 VcsIni.CUTSCENE_BARS, VcsIni.MSAA, VcsIni.ANISO, VcsIni.REDUCE_POSTFX, VcsIni.SKIP_INTRO, VcsIni.FPS_COUNTER})
             set.add(iniItem(s));
+        set.add(new MenuView.Item("Compatibility mode")
+                .value(() -> CompatMode.on(this) ? "On: safe graphics and threading"
+                        : "Off · Try it if the game crashes")
+                .help("Turn this on if the game won't start or the graphics driver crashes. It uses simpler shaders, "
+                        + "stricter GPU sync and no worker threads, so it is slower but safer. It also turns on by "
+                        + "itself after a driver crash.")
+                .enabled(() -> !gameRunning)
+                .choice(OFF_ON, () -> CompatMode.on(this) ? 1 : 0, i -> {
+                    if (!VcsIni.gameRunning(this))
+                        CompatMode.setOn(this, i == 1);
+                    refresh();
+                }));
         set.add(new MenuView.Item("Stats overlay")
                 .value(() -> StatsOverlay.summary(this))
                 .help("The phone's numbers over the game: frame rate and frame time, GPU time, CPU clock caps, heat, "
@@ -439,7 +485,16 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 "scale", 1f, new int[] {60, 70, 80, 90, 100, 110, 120, 130, 140, 150}));
         ctl.add(prefToggle("Vibrate on press", "A short tick when an on-screen button is pressed.", "touch_controls", "haptics", true));
         ctl.add(prefInt("Camera", "Floating stick: a right stick starts under your thumb anywhere free on the right half. Drag: swipe there to look.", "touch_controls",
-                "camera", TouchControls.CAMERA_STICK, new int[] {0, 1}, TouchControls.CAMERA_NAMES));
+                "camera", TouchControls.CAMERA_DRAG, new int[] {0, 1}, TouchControls.CAMERA_NAMES));
+        ctl.add(prefToggle("Double-tap fires", "Tap twice on the camera area and hold the second tap: Circle (fire) is held. "
+                + "A drag still looks around.", "touch_controls", "gesture_dtap_fire", true)); // [android]
+        ctl.add(prefToggle("Two-finger aim", "Tap the camera area with two fingers: free aim on / off, as the AIM button.",
+                "touch_controls", "gesture_two_finger_aim", true));
+        ctl.add(prefToggle("Weapon swipe", "On foot, swipe right on the weapon icon (top right) for the next weapon, left "
+                + "for the previous.", "touch_controls", "gesture_weapon_swipe", true));
+        ctl.add(prefInt("L3 / R3 buttons", "Hidden: the AIM button replaces L3 and R3 does little (docs/ANDROID.md). Their "
+                + "layout positions are kept; Remap buttons can map any button to them.", "touch_controls", "extra_buttons",
+                TouchControls.EXTRA_HIDDEN, new int[] {0, 1, 2}, TouchControls.EXTRA_NAMES));
         ctl.add(prefInt("Gyro aiming", "Turning the phone moves the camera as a drag does.", "touch_controls", "gyro",
                 Gyro.OFF, new int[] {0, 1, 2}, Gyro.MODE_NAMES).visible(() -> Gyro.available(this)));
         int[] sens = {25, 50, 75, 100, 125, 150, 200, 300, 400};
@@ -451,7 +506,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         ctl.add(prefInt("Phone rumble strength", null, "touch_controls", "rumble_strength", 100, strength, percents(strength))
                 .visible(() -> Rumble.available(this) && TouchControls.prefs(this).getBoolean("rumble", true)));
         ctl.add(iniItem(VcsIni.PAD_VIBRATION));
-        ctl.add(prefToggle("On foot / in a vehicle layouts", "In a vehicle Cross and Square become Gas and Brake pedals.",
+        ctl.add(prefToggle("Vehicle layouts", "On foot and in a vehicle have their own layouts. In a vehicle Cross and Square become Gas and Brake pedals.",
                 "touch_controls", "context_layouts", true));
         ctl.add(prefToggle("Accelerator lock", "A LOCK button in a vehicle: Gas held until Brake or a tap.",
                 "touch_controls", "cruise_button", true));
@@ -487,10 +542,10 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                     Lsfg.setFlow(this, Lsfg.FLOWS[i]);
                     refresh();
                 }));
-        fg.add(new MenuView.Item("Find Lossless.dll in a folder…")
+        fg.add(new MenuView.Item("Find Lossless.dll…")
                 .value(() -> {
                     Uri t = Lsfg.tree(this);
-                    return t == null ? "Not set: grant a folder once that holds Lossless.dll" : "Folder: " + Lsfg.treeName(t);
+                    return t == null ? "Not set: pick its folder once" : "Folder: " + Lsfg.treeName(t);
                 })
                 .help("Pick the folder you keep Lossless.dll in, once: the app may then read that folder only, finds the "
                         + "file in it (or below) and copies it in. Choose it again to search again.")
@@ -502,7 +557,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 .enabled(() -> BuildConfig.VCS_LSFG && !busy)
                 .action(() -> findLsfg(Lsfg.tree(this), true)));
         fg.add(new MenuView.Item("Choose the file…")
-                .value(() -> Lsfg.installed(this) ? "Replace the copy with another Lossless.dll" : "Pick Lossless.dll itself")
+                .value(() -> Lsfg.installed(this) ? "Replace the copy" : "Pick Lossless.dll itself")
                 .help("Your own Lossless.dll from Lossless Scaling's folder on your PC (Steam). It is copied into the app, "
                         + "never shared.")
                 .enabled(() -> BuildConfig.VCS_LSFG && !busy)
@@ -512,7 +567,8 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         MenuView.Category about = menu.category("About", MenuView.G_ABOUT);
         about.add(new MenuView.Item(getString(R.string.app_name))
                 .value(() -> "Version " + versionName() + " · " + BuildConfig.VCS_BUILD_TAG)
-                .help("The build tag (branch@commit) names the code this app was built from: give it with any report."));
+                .help(() -> "The build tag (branch@commit) names the code this app was built from: give it with any report."
+                        + (DeviceNotice.tested(this) ? "" : " This phone is not on the tested list yet."))); // [device]
         // [update] check / what's new / update / check at start (docs/ANDROID.md "Releases and updates")
         updates = new UpdateMenu(this, this::refresh);
         updates.addTo(about);
@@ -521,21 +577,49 @@ public class LauncherActivity extends Activity implements MenuView.Host {
                 .help("The game is recompiled from your own disc; everything else streams from the .iso at run time."));
         // [lcs] a neutral credit: both games are offered equally; the PC port of Vice City Stories is upstream's
         about.add(new MenuView.Item("Credits")
-                .value(() -> "Vice City Stories' PC port: gothamor/gta-vcs-recomp")
+                .value(() -> "VCS PC port: gothamor/gta-vcs-recomp")
                 .help("The recompilation of Vice City Stories comes from that project; Liberty City Stories and this "
                         + "Android app are this project's. Problems on the phone with either game: report them here."));
         about.add(new MenuView.Item("Licence")
-                .value(() -> "GPL-3.0 · the frame generation port GPL-3.0-or-later")
-                .help("Lossless.dll is not part of this app: you bring your own copy."));
+                .value(() -> "GPL-3.0 (frame generation: or later)")
+                .help("The frame generation port is GPL-3.0-or-later. Lossless.dll is not part of this app: you bring your own copy."));
         // [report] the game's log and a crash report a player can send without a PC (CrashReport.java)
-        about.add(new MenuView.Item("Game log and crash report…")
+        about.add(new MenuView.Item("Log and crash report…")
                 .value(() -> reportNote != null ? reportNote : CrashReport.lastRunSummary(this))
                 .help("Saves or shares a report: this phone's model and Android version, the app's version and the "
-                        + "game's log. Send it with any crash report. It holds no game data and nothing from your disc.")
+                        + "game's log, with how the last runs ended and the frame rate. Send it with any crash report. "
+                        + "It holds no game data, nothing from your disc and nothing personal.")
                 .action(this::reportMenu));
         about.add(new MenuView.Item("Where your data is")
-                .value(() -> "Settings files/vcs.ini · saves files/" + GameFiles.dataDir(this).getName()) // [lcs] per game
-                .help("Inside the app's private folder. Uninstalling the app deletes them."));
+                .value(() -> "Free " + StorageInfo.text(StorageInfo.free(getFilesDir())) + " · app's private folder")
+                .help(() -> "Settings: files/vcs.ini. Saves: files/" + GameFiles.dataDir(this).getName() // [lcs] per game
+                        + ". Inside the app's private folder. Uninstalling the app deletes them. Tap for the size of each "
+                        + "part, the free space and how to move the disc image.")
+                .action(this::storageMenu)); // [storage]
+    }
+
+    /** [storage] The sizes dialog (StorageInfo): folders are walked on a thread, the dialog opens when they are known */
+    private void storageMenu() {
+        Toast.makeText(this, "Measuring…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String text = StorageInfo.report(this);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed())
+                    return;
+                android.widget.TextView t = new android.widget.TextView(this);
+                t.setText(text);
+                t.setTypeface(android.graphics.Typeface.MONOSPACE);
+                t.setTextSize(12);
+                t.setPadding(48, 24, 48, 0);
+                ScrollView sv = new ScrollView(this);
+                sv.addView(t);
+                Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Where your data is")
+                        .setView(sv)
+                        .setPositiveButton("OK", null)
+                        .show());
+            });
+        }, "storage-sizes").start();
     }
 
     // ---- state ------------------------------------------------------------------------------------------------------
@@ -558,27 +642,45 @@ public class LauncherActivity extends Activity implements MenuView.Host {
 
     private String readiness() {
         if (gameRunning)
-            return "✓ The game is running: Play returns to it";
+            return "✓ Running: Play returns to it";
         if (busy)
             return "Busy…";
         if (!haveDisc() && GameFiles.disc(this) != null && GameFiles.discOk(this)) { // [lcs] the other game's disc
             DiscCheck.Game d = DiscCheck.game(GameFiles.discGame(this));
-            return "✗ The disc is " + (d != null ? d.name : "another game") + ", the game library "
-                    + GameFiles.libraryGameInfo(this).name + ": choose the matching one under Disc";
+            return "✗ Disc and library: not the same game";
         }
         if (!haveDisc())
-            return "✗ No disc yet: choose one under Disc";
+            return "✗ No disc yet: see Disc";
         if (!haveLibrary())
-            return "✗ No game library yet: import it under Disc";
+            return "✗ No game library: see Disc";
         String problem = GameFiles.libraryProblem(this);
         if (problem != null)
             return "✗ " + problem;
         String refused = GameFiles.lastLoadError(this);
         if (refused != null && !GameFiles.bundledGame(this))
-            return "✗ The game refused the library last time: " + refused;
+            return "✗ The game refused the library";
         DiscCheck.Game g = GameFiles.libraryGameInfo(this); // [lcs] another game than VCS: named
-        return "✓ Ready · " + (g == DiscCheck.VCS ? "" : g.name + " · ") + ini.presetName() + ", " + VcsIni.SCALE.name(ini.value(VcsIni.SCALE)) + ", "
+        return "✓ Ready · " + ini.presetName() + ", " + VcsIni.SCALE.name(ini.value(VcsIni.SCALE)) + ", "
                 + VcsIni.FPS.name(ini.value(VcsIni.FPS)) + " fps";
+    }
+
+    /** The long form of readiness(), for the Play row's explanation (null: nothing to add) */
+    private String readinessDetail() {
+        if (gameRunning || busy)
+            return null;
+        if (!haveDisc() && GameFiles.disc(this) != null && GameFiles.discOk(this)) {
+            DiscCheck.Game d = DiscCheck.game(GameFiles.discGame(this));
+            return "The disc is " + (d != null ? d.name : "another game") + ", the game library "
+                    + GameFiles.libraryGameInfo(this).name + ": choose the matching one under Disc.";
+        }
+        if (!haveDisc())
+            return "Choose your disc under Disc first.";
+        if (!haveLibrary())
+            return "Import the game library under Disc first.";
+        String refused = GameFiles.lastLoadError(this);
+        if (GameFiles.libraryProblem(this) == null && refused != null && !GameFiles.bundledGame(this))
+            return "The game refused the library last time: " + refused;
+        return "Starts " + GameFiles.libraryGameInfo(this).name + " with the settings shown (change them under Settings).";
     }
 
     private String discState() {
@@ -587,29 +689,29 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         Uri disc = GameFiles.disc(this);
         boolean pushed = GameFiles.pushedDisc(this) != null;
         if (pushed && (disc == null || !GameFiles.discMatchesLibrary(this)))
-            return "✓ " + GameFiles.pushedDiscName(this) + " in the app's folder (copied there, not checked here)";
+            return "✓ " + GameFiles.pushedDiscName(this) + " (test copy)";
         if (disc == null)
             return "No disc chosen";
         if (GameFiles.discOk(this)) {
             DiscCheck.Game d = DiscCheck.game(GameFiles.discGame(this)); // [lcs] which game it is
             return (GameFiles.discMatchesLibrary(this) ? "✓ " : "✗ ") + GameFiles.discName(this)
-                    + (d != null ? " · " + d.name : "");
+                    + (d != null && !GameFiles.discMatchesLibrary(this) ? " · " + d.name : "");
         }
-        return "✗ " + GameFiles.discName(this) + " is not a supported disc";
+        return "✗ Unsupported: " + GameFiles.discName(this);
     }
 
     private String libraryState() {
         if (libraryNote != null)
             return libraryNote;
         if (GameFiles.bundledGame(this))
-            return "✓ Built into this app: a personal build from your disc. Don't share this APK.";
+            return "✓ Built into this app";
         File lib = GameFiles.gameLibrary(this);
         String problem = GameFiles.libraryProblem(this);
         if (problem != null)
             return "✗ " + problem;
         if (lib.exists()) // [lcs] and which game it is (its stamp)
-            return "✓ Imported: " + GameFiles.libraryGameInfo(this).name + " (" + (lib.length() / (1024 * 1024)) + " MB)";
-        return GameFiles.libraryGameInfo(this).name + "'s: not imported yet"; // [lcs] per game
+            return "✓ Imported (" + (lib.length() / (1024 * 1024)) + " MB)";
+        return "Not imported yet"; // [lcs] per game
     }
 
     // [phonebuild] ----------------------------------------------------------------------------------------------
@@ -627,7 +729,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         if (GameFiles.disc(this) == null || !GameFiles.discOk(this) || !game.equals(GameFiles.discGame(this)))
             return "Choose " + DiscCheck.game(game).name + "'s disc first";
         return BuildService.statusText != null && game.equals(BuildService.statusGame) ? BuildService.statusText
-                : "From the chosen disc, here (no PC needed)";
+                : "From your disc, here: no PC needed";
     }
 
     /** Why a phone build can't start now (shown in a dialog), or null */
@@ -709,11 +811,11 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         if (lsfgNote != null)
             return lsfgNote;
         if (!BuildConfig.VCS_LSFG)
-            return "Not in this build (built with -PvcsLsfg=false)";
+            return "Not in this build";
         if (!Lsfg.installed(this))
-            return "No Lossless.dll yet: find it in a folder or choose the file below";
-        return (Lsfg.on(this) ? "✓ On: x" + Lsfg.multiplier(this) + ", flow " + Lsfg.flow(this) + " %" : "Off")
-                + " · Lossless.dll " + (Lsfg.privateCopy(this).length() / 1024) + " KB";
+            return "No Lossless.dll yet: add it below";
+        return Lsfg.on(this) ? "✓ On · x" + Lsfg.multiplier(this) + " · flow " + Lsfg.flow(this) + " %"
+                : "Off · Lossless.dll is in the app";
     }
 
     private static String size(long bytes) {
@@ -792,6 +894,8 @@ public class LauncherActivity extends Activity implements MenuView.Host {
             importLsfg(uri);
         else if (request == PICK_LSFG_FOLDER)
             grantLsfgFolder(uri);
+        else if (request == PICK_GPU_DRIVER)
+            importGpuDriver(uri);
     }
 
     // ---- [report] the game's log and crash report (CrashReport.java) ---------------------------------------------------
@@ -801,20 +905,35 @@ public class LauncherActivity extends Activity implements MenuView.Host {
     private void reportMenu() {
         Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Game log and crash report")
-                .setMessage(CrashReport.lastRunSummary(this) + "\n\nThe report: this phone (model, chip, Android "
-                        + "version), the app's version and the game's log from the last two runs. No game data, nothing "
-                        + "from your disc. Save it to a file, or share it (long logs are cut there).")
+                .setMessage(CrashReport.lastRunSummary(this) + "\n\nThe report holds: this phone's model, chip and "
+                        + "Android version, the app's version, how the game's last runs ended (Android's own record), the "
+                        + "phone's temperature, battery and free memory, the game's frame rate every 10 seconds, and the "
+                        + "game's log from the last two runs.\n\nIt never holds: your disc or any game data, your saves, "
+                        + "your files, your name, accounts or location. The only thing about you is the phone model. "
+                        + "Save it to a file, or share it (long logs are cut there).")
                 .setNegativeButton("Share…", (d, w) -> shareReport())
-                .setPositiveButton("Save to a file…", (d, w) -> {
-                    Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-                    i.addCategory(Intent.CATEGORY_OPENABLE);
-                    i.setType("text/plain");
-                    i.putExtra(Intent.EXTRA_TITLE, "gta-stories-report-" + new java.text.SimpleDateFormat(
-                            "yyyyMMdd-HHmm", Locale.ROOT).format(new java.util.Date()) + ".txt");
-                    startActivityForResult(i, SAVE_REPORT);
-                })
+                .setPositiveButton("Save to a file…", (d, w) -> pickReportFile())
                 .setNeutralButton("Close", null)
                 .show());
+    }
+
+    /** The system's file picker for the report (the result arrives in onActivityResult as SAVE_REPORT) */
+    private void pickReportFile() {
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_TITLE, "gta-stories-report-" + new java.text.SimpleDateFormat(
+                "yyyyMMdd-HHmm", Locale.ROOT).format(new java.util.Date()) + ".txt");
+        startActivityForResult(i, SAVE_REPORT);
+    }
+
+    /** [device] The one notice dialog (compat note, untested phone, start-up error): OK, plus an optional action button */
+    private void showNotice(String title, String message, String actionLabel, Runnable action) {
+        AlertDialog.Builder b = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(title).setMessage(message).setNegativeButton("OK", null);
+        if (actionLabel != null)
+            b.setPositiveButton(actionLabel, (d, w) -> action.run());
+        Dialogs.fit(b.show());
     }
 
     private void reportNote(String note) {
@@ -992,6 +1111,104 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         return 0;
     }
 
+    // ---- [gpu-driver] Custom GPU driver (Adreno only): GpuDriver.java ---------------------------------------------------
+
+    /** A line for the untested-phone notice and the start-up error, on Adreno phones only */
+    private String gpuDriverHint() {
+        return GpuDriver.supported(this) ? "\n\nAdreno: a newer driver may help (Settings > Custom GPU driver)." : "";
+    }
+
+    /** Choose the active driver (or the system's), import, remove */
+    private void gpuDriverMenu() {
+        java.util.List<GpuDriver.Meta> all = GpuDriver.installed(this);
+        String[] names = new String[all.size() + 1];
+        names[0] = GpuDriver.SYSTEM;
+        GpuDriver.Meta active = GpuDriver.active(this);
+        int checked = 0;
+        for (int i = 0; i < all.size(); i++) {
+            names[i + 1] = all.get(i).label();
+            if (active != null && active.dir.equals(all.get(i).dir))
+                checked = i + 1;
+        }
+        AlertDialog.Builder b = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Custom GPU driver (Adreno only)")
+                .setSingleChoiceItems(names, checked, (d, which) -> {
+                    GpuDriver.setActive(this, which == 0 ? "" : all.get(which - 1).dir);
+                    driverNote = null;
+                    refresh();
+                    d.dismiss();
+                })
+                .setPositiveButton("Import driver (.zip)…", (d, w) -> importGpuDriverAsk())
+                .setNeutralButton("Close", null);
+        if (!all.isEmpty())
+            b.setNegativeButton("Remove…", (d, w) -> removeGpuDriver(all));
+        Dialogs.fit(b.show());
+    }
+
+    private void importGpuDriverAsk() {
+        if (GpuDriver.warned(this)) {
+            pick(PICK_GPU_DRIVER);
+            return;
+        }
+        Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Before you import a driver")
+                .setMessage("A custom GPU driver is native code that runs inside the game, with the app's access. Import "
+                        + "only drivers from sources you trust (e.g. Mesa Turnip builds made for emulators).\n\n"
+                        + "Pick the driver package itself: a .zip with meta.json and the driver's .so. This app includes "
+                        + "no drivers and downloads none. If the game fails with the driver, the system driver comes "
+                        + "back by itself.")
+                .setPositiveButton("I understand, choose the .zip…", (d, w) -> {
+                    GpuDriver.setWarned(this);
+                    pick(PICK_GPU_DRIVER);
+                })
+                .setNegativeButton("Cancel", null)
+                .show());
+    }
+
+    private void importGpuDriver(Uri uri) {
+        busy = true;
+        driverNote = "Importing " + displayName(uri) + "…";
+        refresh();
+        new Thread(() -> {
+            GpuDriver.Imported r = GpuDriver.install(this, uri);
+            ui.post(() -> {
+                busy = false;
+                if (r.error != null) {
+                    driverNote = "✗ " + r.error;
+                } else {
+                    driverNote = null;
+                    GpuDriver.setActive(this, r.meta.dir); // imported to be used; the menu switches back
+                    showNotice("Custom GPU driver", "Imported and selected: " + r.meta.label() + "\n\nIt is used from "
+                            + "the next Play (Play > Test graphics is a quick check). Choose \"" + GpuDriver.SYSTEM + "\" in this "
+                            + "menu to go back.", null, null);
+                }
+                refresh();
+            });
+        }).start();
+    }
+
+    private void removeGpuDriver(java.util.List<GpuDriver.Meta> all) {
+        String[] names = new String[all.size()];
+        for (int i = 0; i < names.length; i++)
+            names[i] = all.get(i).label();
+        Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Remove which driver?")
+                .setItems(names, (d, which) -> {
+                    GpuDriver.Meta m = all.get(which);
+                    Dialogs.fit(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                            .setTitle("Remove " + m.name + "?")
+                            .setMessage("Deletes the app's copy of this driver. The .zip you imported stays where it is.")
+                            .setNegativeButton("Keep it", null)
+                            .setPositiveButton("Remove", (d2, w2) -> {
+                                driverNote = GpuDriver.remove(this, m.dir) ? null : "✗ Couldn't remove " + m.name;
+                                refresh();
+                            })
+                            .show());
+                })
+                .setNegativeButton("Cancel", null)
+                .show());
+    }
+
     // Lossless.dll: copied into files/lsfg (Lsfg.install), off the UI thread
     private void importLsfg(Uri uri) {
         busy = true;
@@ -1114,7 +1331,7 @@ public class LauncherActivity extends Activity implements MenuView.Host {
     }
 
     private String storiesReadiness() {
-        return storiesReady() ? "✓ Ready · Liberty City + Vice City" : "✗ Disc missing: " + storiesNeedNote();
+        return storiesReady() ? "✓ Ready · Liberty City + Vice City" : "✗ A disc is missing: see Disc";
     }
 
     private String storiesNeedNote() {
@@ -1175,7 +1392,37 @@ public class LauncherActivity extends Activity implements MenuView.Host {
         BuildService.listener = () -> ui.post(this::refresh); // [phonebuild] the build's progress on its row
         resumed = true;
         waves.setRunning(true);
+        // [gpu-driver] a custom driver's run that failed: back to the system driver (takes its device-lost marker first)
+        String gpuDriverNote = VcsIni.gameRunning(this) ? null : GpuDriver.checkLastRun(this);
+        String compatNote = CompatMode.consumeMarker(this); // [compat] the renderer lost the device last run
+        DeviceNotice.scan(this); // [device] the GPU the last run used, from its log
         refresh();
+        GpuLog.Failure failure = VcsIni.gameRunning(this) ? null : DeviceNotice.pendingFailure(this);
+        ReportLog.Problem problem;
+        if (gpuDriverNote != null || compatNote != null || failure != null)
+            DeviceNotice.problemShown(this); // the note below already says what went wrong last run: no second dialog for it
+        if (gpuDriverNote != null) {
+            if (failure != null)
+                DeviceNotice.failureShown(this); // the same failed start: one dialog
+            showNotice("Custom GPU driver", gpuDriverNote, "Open settings", () -> menu.select(MenuView.G_SETTINGS, 0));
+        } else if (compatNote != null) {
+            showNotice("Compatibility mode", compatNote, null, null);
+        } else if (failure != null) { // [device] the last start failed in the graphics: say why
+            DeviceNotice.failureShown(this);
+            showNotice("The game could not start", GpuLog.explain(failure) + gpuDriverHint(), "Save report…", this::pickReportFile);
+        } else if (!VcsIni.gameRunning(this) && (problem = DeviceNotice.pendingProblem(this)) != null) { // the last run's black picture / freeze
+            DeviceNotice.problemShown(this);
+            showNotice(problem.title, problem.message + gpuDriverHint(), "Save report…", this::pickReportFile);
+        } else if (DeviceNotice.due(this)) { // [device] a phone we have not tested: once per GPU / driver
+            DeviceNotice.markShown(this);
+            showNotice("Untested phone", DeviceNotice.MESSAGE + gpuDriverHint(), "Open settings", () -> menu.select(MenuView.G_SETTINGS, 0));
+        } else if (!VcsIni.gameRunning(this) && backupDue()) { // [saves] saves only the app holds, never backed up
+            getSharedPreferences("launcher_ui", MODE_PRIVATE).edit().putString("backup_reminded", BuildConfig.VERSION_NAME).apply();
+            showNotice("Back up your saves",
+                    "Your saves live only inside this app. Uninstalling it, or clearing its data, deletes them for good, and a "
+                            + "failed update can too.\n\nSaves > Back up all saves writes both games to one file. Keep it "
+                            + "off the phone too.", "Open Saves", () -> menu.select(MenuView.G_SAVES, 0));
+        }
         // the granted folder: copy Lossless.dll in by itself the first time it is missing
         Uri tree = Lsfg.tree(this);
         if (BuildConfig.VCS_LSFG && tree != null && !Lsfg.installed(this) && !autoFindTried) {
@@ -1183,6 +1430,15 @@ public class LauncherActivity extends Activity implements MenuView.Host {
             findLsfg(tree, false);
         }
         updates.onResume(); // [update] the daily check, if turned on
+    }
+
+    /** [saves] a save exists, no backup was ever made, and this version has not asked yet */
+    private boolean backupDue() {
+        android.content.SharedPreferences p = getSharedPreferences("launcher_ui", MODE_PRIVATE);
+        if (p.getLong("backup_at", 0) > 0 || BuildConfig.VERSION_NAME.equals(p.getString("backup_reminded", null)))
+            return false;
+        return SaveBackup.hasSaves(GameFiles.dataDir(this, DiscCheck.VCS.id))
+                || SaveBackup.hasSaves(GameFiles.dataDir(this, DiscCheck.LCS.id));
     }
 
     @Override

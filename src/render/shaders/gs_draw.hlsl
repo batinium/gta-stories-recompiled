@@ -1,6 +1,8 @@
 // GS primitive drawing for the HW GS renderer (gs_hw.cpp): HLSL port of its former GLSL shaders.
 // Render targets hold PS2 rows top-down (texture row = PS2 row); colours and alpha are 0..255 values / 255.
 // DUAL_SOURCE=1 also outputs the blend factor C as the second colour (Src1Alpha blending).
+// [android] DUAL_SOURCE=2: C in the colour's alpha instead (SrcAlpha blending, for GPUs without dual-source blending; the
+// alpha channel's blend scales it back to As, ps2xRuntime gs_blend.h). 0 and 1 are unchanged by it.
 // SAMPLE_MODE: the pixel shader built for one way of reading the texture, picked per draw by gs_hw.cpp (drawSampleMode):
 // only that path's code, so fewer registers and no branches between paths (docs/PERFORMANCE.md 18). The same code as the
 // per-draw choice below, so the same pixels.
@@ -43,7 +45,16 @@ struct VSIn
 };
 
 // The point size output: Vulkan's, and Metal's vertex stage only (tools/hlsl_msl.py)
-#if VCS_SPIRV && (!VCS_MSL || VCS_MSL_VERTEX)
+// [android] Vulkan: only in the point vertex shader (-D VCS_POINT_VARIANT=1, gs_hw.cpp uses it for point draws). With a
+// PointSize output the stock Adreno 840 driver (Vulkan 1.4.295) refuses every pipeline built from this vertex shader
+// (vkCreateGraphicsPipelines VK_ERROR_UNKNOWN, black picture, 2026-11-22); Turnip and the others accept it either way.
+#if VCS_SPIRV && !VCS_MSL
+#ifdef VCS_POINT_VARIANT
+#define VCS_POINT_SIZE 1
+#else
+#define VCS_POINT_SIZE 0
+#endif
+#elif VCS_SPIRV && VCS_MSL_VERTEX
 #define VCS_POINT_SIZE 1
 #else
 #define VCS_POINT_SIZE 0
@@ -362,7 +373,7 @@ float4 sampleTex(float2 uv)
 struct PSOut
 {
     float4 color : SV_Target0;
-#if DUAL_SOURCE
+#if DUAL_SOURCE == 1
     float4 blend : SV_Target1;
 #endif
 #if SHADER_DEPTH
@@ -423,8 +434,10 @@ PSOut ps_main(VSOut i)
     o.color = float4(rgb / 255.0, c.a / 255.0);
     if (g_gatherMismatch)
         o.color = float4(1.0, 0.0, 1.0, 1.0);
-#if DUAL_SOURCE
+#if DUAL_SOURCE == 1
     o.blend = min(cf, 1.0).xxxx;
+#elif DUAL_SOURCE == 2
+    o.color.a = min(cf, 1.0); // [android] C (ALPHA.C = As here): the single-source blend factor
 #endif
     return o;
 }

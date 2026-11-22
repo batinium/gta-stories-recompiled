@@ -281,7 +281,7 @@ final class GameFiles {
             String n = stamp.substring(STAMP_PREFIX.length()).split(" ", 2)[0];
             if (!n.equals(String.valueOf(BuildConfig.VCS_GAME_ABI)))
                 problem = "Game library built for another version (interface " + n + ", this app " + BuildConfig.VCS_GAME_ABI
-                        + "): rebuild it with tools/android.py build-game and import it again.";
+                        + "): build a new one from your disc (the PC launcher's \"Prepare for Android\" button, or tools/android.py build-game) and import it again.";
         }
         cachedKey = key;
         cachedProblem = problem;

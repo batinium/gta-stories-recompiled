@@ -172,6 +172,16 @@ set(PS2X_PARALLEL_GS_DIR "${CMAKE_SOURCE_DIR}/third_party/parallel-gs" CACHE PAT
 # libsmoke.so, the bring-up test on the platform layer, the Vulkan RHI and the presenter (always), and libmain.so, the
 # game (below, once a disc is recompiled). SDL3 is linked whole into each: its JNI entry points are only reached from Java.
 if(ANDROID)
+    # [android] Custom GPU drivers (docs/ANDROID.md): libadrenotools, built into vcs_rhi (src/rhi/CMakeLists.txt). Not in
+    # a both-cities guest (its host's libmain.so loads Vulkan). The player brings the driver; none is built or shipped.
+    if(NOT VCS_ANDROID_STORIES_GUEST)
+        option(VCS_GPU_DRIVERS "Android: custom Vulkan drivers through libadrenotools (Adreno)" ON)
+    else()
+        set(VCS_GPU_DRIVERS OFF)
+    endif()
+    if(VCS_GPU_DRIVERS)
+        include(src/android/adrenotools.cmake)
+    endif()
     add_subdirectory(src/platform)
     add_subdirectory(src/rhi)
     add_subdirectory(src/render)
